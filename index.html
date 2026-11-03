@@ -67,6 +67,29 @@
     </header>
 
     <main class="conteudo">
+      <!-- ===== Lista de grupos de trabalho (tela inicial) ===== -->
+      <section id="telaGrupos" hidden>
+        <div class="cab-pagina">
+          <div>
+            <h1>Grupos de trabalho</h1>
+            <p>Escolha um GT para ver as pautas, sugestões e encaminhamentos dele.</p>
+          </div>
+          <button class="btn btn-primario somente-admin" id="btnNovoGrupo">+ Novo GT</button>
+        </div>
+        <div class="grupos" id="listaGrupos"></div>
+      </section>
+
+      <!-- ===== Painel do GT aberto ===== -->
+      <section id="telaPainel" hidden>
+      <div class="cab-pagina cab-grupo">
+        <div>
+          <button class="btn-voltar" id="btnVoltarGrupos">← Todos os GTs</button>
+          <h1 id="nomeGrupo"></h1>
+          <p id="descGrupo"></p>
+        </div>
+        <button class="btn btn-secundario somente-admin" id="btnEditarGrupo">Editar GT</button>
+      </div>
+
       <!-- Indicadores -->
       <section class="kpis" id="kpis"></section>
 
@@ -91,9 +114,28 @@
           </div>
         </section>
       </div>
+      </section>
     </main>
     <footer class="rodape-app">Sistema de Reuniões e Encaminhamentos · Desenvolvido por <strong>GTIC Hemobrás</strong></footer>
   </div>
+
+  <!-- ============ MODAL NOVO/EDITAR GT ============ -->
+  <dialog id="modalGrupo" class="modal">
+    <form id="formGrupo">
+      <h2 id="modalGrupoTitulo">Novo grupo de trabalho</h2>
+      <label for="gNome">Nome *</label>
+      <input type="text" id="gNome" maxlength="80" placeholder="ex.: GT-Compras" required>
+      <label for="gDescricao">Descrição</label>
+      <textarea id="gDescricao" rows="3" maxlength="500" placeholder="Objetivo do grupo (também ajuda a IA a sugerir pautas)"></textarea>
+      <p id="erroGrupo" class="msg-erro" hidden></p>
+      <div class="modal-acoes">
+        <button type="button" class="btn btn-secundario" id="btnAtivarGrupo" hidden>Desativar GT</button>
+        <span style="flex:1"></span>
+        <button type="button" class="btn btn-fantasma" id="btnCancelarGrupo">Cancelar</button>
+        <button type="submit" class="btn btn-primario">Salvar</button>
+      </div>
+    </form>
+  </dialog>
 
   <!-- ============ MODAL NOVA/EDITAR PAUTA ============ -->
   <dialog id="modalPauta" class="modal">

@@ -16,6 +16,7 @@ const estado = {
   nivel: "",
   detalhes: {},          // conteúdo de cada pauta já aberta: { ideia, interacoes, encaminhamentos }
   ultimaResposta: null,  // último resumo recebido (guardado para abrir rápido ao recarregar)
+  grupo: null,           // ID do GT aberto; null = tela com a lista de GTs
   dados: { ideias: [], interacoes: [], encaminhamentos: [], usuarios: [], citacoes: [] },
   listas: {
     STATUS_IDEIA: ["Em Debate", "Em Redação", "Aprovada", "Arquivada"],
@@ -32,6 +33,26 @@ const estado = {
 };
 
 const $ = (sel, raiz = document) => raiz.querySelector(sel);
+
+/* ---------- Grupos de trabalho (GTs) ---------- */
+
+// Pautas sem grupo (de antes dos GTs) pertencem ao GT-Sistemas, como no Code.gs
+const GRUPO_PADRAO = { ID_Grupo: "GT-SISTEMAS", Nome: "GT-Sistemas", Descricao: "", Ativo: "Sim" };
+const CHAVE_GRUPO = MODO_DEMO ? "sre_grupo_demo" : "sre_grupo";
+const grupoDe = i => String(i.ID_Grupo || "") || GRUPO_PADRAO.ID_Grupo;
+const grupoAtivo = g => g.Ativo === true || /^(sim|true)$/i.test(String(g.Ativo));
+const grupoAtual = () => (estado.dados.grupos || []).find(g => String(g.ID_Grupo) === String(estado.grupo)) || null;
+const ideiasDoGrupo = () => estado.dados.ideias.filter(i => grupoDe(i) === estado.grupo);
+
+function definirGrupo(id) {
+  estado.grupo = id ? String(id) : null;
+  try {
+    if (estado.grupo) sessionStorage.setItem(CHAVE_GRUPO, estado.grupo);
+    else sessionStorage.removeItem(CHAVE_GRUPO);
+  } catch (e) {}
+}
+
+try { estado.grupo = sessionStorage.getItem(CHAVE_GRUPO) || null; } catch (e) {}
 
 /* ---------------------------------------------------------- */
 /* Comunicação com a API                                       */
@@ -204,6 +225,7 @@ function encerrarSessaoLocal() {
   estado.token = "";
   estado.usuario = null;
   estado.detalhes = {};
+  definirGrupo(null);
   try {
     sessionStorage.removeItem(CHAVE_TOKEN);
     sessionStorage.removeItem(CHAVE_COPIA);
@@ -265,6 +287,8 @@ function aplicarResposta(r) {
     estado.nivel = r.nivelAcesso;
     estado.usuario = r.usuario || null;
     estado.dados = { ideias: [], usuarios: [], citacoes: [], ...r.dados };
+    // Code.gs sem GTs: todas as pautas ficam no GT-Sistemas
+    if (!Array.isArray(r.dados.grupos) || !r.dados.grupos.length) estado.dados.grupos = [{ ...GRUPO_PADRAO }];
     if (r.listas) estado.listas = { ...estado.listas, ...r.listas };
     estado.ultimaResposta = { nivelAcesso: r.nivelAcesso, usuario: r.usuario, dados: r.dados, listas: r.listas, hoje: r.hoje };
     // Code.gs antigo manda tudo de uma vez: monta os detalhes a partir disso
@@ -426,9 +450,94 @@ function aviso(msg, ehErro = false) {
 
 function renderizarTudo() {
   renderizarTopo();
+  // GT aberto que sumiu (desativado para quem não é admin): volta à lista
+  if (estado.grupo && !grupoAtual()) definirGrupo(null);
+  $("#telaGrupos").hidden = !!estado.grupo;
+  $("#telaPainel").hidden = !estado.grupo;
+  if (!estado.grupo) return renderizarGrupos();
+  const g = grupoAtual();
+  $("#nomeGrupo").textContent = g.Nome;
+  $("#descGrupo").textContent = g.Descricao || "";
   renderizarKpis();
   renderizarLista();
   renderizarDetalhe();
+}
+
+/* ---------- Tela com a lista de GTs ---------- */
+
+function renderizarGrupos() {
+  const grupos = [...(estado.dados.grupos || [])]
+    .sort((a, b) => (grupoAtivo(b) - grupoAtivo(a)) || String(a.Nome).localeCompare(String(b.Nome), "pt-BR"));
+  $("#listaGrupos").innerHTML = grupos.length ? grupos.map(g => {
+    const ideias = estado.dados.ideias.filter(i => grupoDe(i) === String(g.ID_Grupo));
+    const soma = campo => ideias.reduce((t, i) => t + (Number(i[campo]) || 0), 0);
+    const ativas = ideias.filter(i => i.Status !== "Arquivada").length;
+    const debate = ideias.filter(i => i.Status === "Em Debate").length;
+    const atrasados = soma("Qtd_Atrasados");
+    return `
+      <button class="grupo-card ${grupoAtivo(g) ? "" : "inativo"}" data-grupo="${esc(g.ID_Grupo)}">
+        <h3><span>${esc(g.Nome)}</span>${grupoAtivo(g) ? "" : '<span class="selo st-arquivada">Desativado</span>'}</h3>
+        <p>${esc(g.Descricao) || "Sem descrição."}</p>
+        <div class="grupo-numeros">
+          <div><strong>${ativas}</strong><span>pautas ativas</span></div>
+          <div><strong>${debate}</strong><span>em debate</span></div>
+          <div><strong>${soma("Qtd_Abertos")}</strong><span>ações em aberto</span></div>
+          <div class="${atrasados ? "perigo" : ""}"><strong>${atrasados}</strong><span>atrasadas</span></div>
+        </div>
+      </button>`;
+  }).join("") : `<div class="vazio">Nenhum grupo de trabalho cadastrado.</div>`;
+}
+
+function abrirGrupo(id) {
+  if (String(id) !== String(estado.grupo)) {
+    estado.selecionada = null;
+    estado.citacaoOrigem = null;
+    $("#busca").value = "";
+    $("#filtroStatus").value = "";
+  }
+  definirGrupo(id);
+  renderizarTudo();
+}
+
+function voltarAosGrupos() {
+  definirGrupo(null);
+  estado.selecionada = null;
+  renderizarTudo();
+  window.scrollTo(0, 0);
+}
+
+let editandoGrupo = null;
+
+function abrirModalGrupo(grupo = null) {
+  editandoGrupo = grupo;
+  $("#modalGrupoTitulo").textContent = grupo ? "Editar grupo de trabalho" : "Novo grupo de trabalho";
+  $("#gNome").value = grupo ? grupo.Nome : "";
+  $("#gDescricao").value = grupo ? grupo.Descricao || "" : "";
+  $("#btnAtivarGrupo").hidden = !grupo;
+  if (grupo) $("#btnAtivarGrupo").textContent = grupoAtivo(grupo) ? "Desativar GT" : "Reativar GT";
+  $("#erroGrupo").hidden = true;
+  $("#modalGrupo").showModal();
+  $("#gNome").focus();
+}
+
+async function salvarGrupo(ev) {
+  ev.preventDefault();
+  const dados = { nome: $("#gNome").value, descricao: $("#gDescricao").value };
+  const r = editandoGrupo
+    ? await gravar("EDITAR_GRUPO", { ...dados, idGrupo: editandoGrupo.ID_Grupo })
+    : await gravar("CRIAR_GRUPO", dados);
+  if (!r) return;
+  $("#modalGrupo").close();
+  if (!editandoGrupo && r.idGrupo) abrirGrupo(r.idGrupo);
+}
+
+async function alternarGrupoAtivo() {
+  const g = editandoGrupo;
+  if (!g) return;
+  const desativar = grupoAtivo(g);
+  if (desativar && !confirm(`Desativar o ${g.Nome}?\n\nEle deixa de aparecer para os usuários (as pautas ficam guardadas). Você pode reativá-lo depois.`)) return;
+  const r = await gravar("EDITAR_GRUPO", { idGrupo: g.ID_Grupo, ativo: !desativar });
+  if (r) $("#modalGrupo").close();
 }
 
 function renderizarTopo() {
@@ -448,7 +557,7 @@ function renderizarTopo() {
 }
 
 function renderizarKpis() {
-  const { ideias } = estado.dados;
+  const ideias = ideiasDoGrupo();
   const soma = campo => ideias.reduce((t, i) => t + (Number(i[campo]) || 0), 0);
   const ativas = ideias.filter(i => i.Status !== "Arquivada").length;
   const debate = ideias.filter(i => i.Status === "Em Debate").length;
@@ -464,7 +573,7 @@ function renderizarKpis() {
 function ideiasFiltradas() {
   const termo = $("#busca").value.trim().toLowerCase();
   const status = $("#filtroStatus").value;
-  return estado.dados.ideias
+  return ideiasDoGrupo()
     .filter(i => !status || i.Status === status)
     .filter(i => !termo || `${i.Titulo} ${i.Descricao}`.toLowerCase().includes(termo))
     .sort((a, b) => String(b.Data_Criacao).localeCompare(String(a.Data_Criacao)));
@@ -474,7 +583,7 @@ function renderizarLista() {
   const lista = ideiasFiltradas();
   const cont = $("#listaPautas");
   if (!lista.length) {
-    cont.innerHTML = `<div class="vazio">${estado.dados.ideias.length ? "Nenhuma pauta encontrada com esse filtro." : "Nenhuma pauta cadastrada ainda."}</div>`;
+    cont.innerHTML = `<div class="vazio">${ideiasDoGrupo().length ? "Nenhuma pauta encontrada com esse filtro." : "Nenhuma pauta cadastrada neste GT ainda."}</div>`;
     return;
   }
   cont.innerHTML = lista.map(i => {
@@ -735,7 +844,7 @@ async function salvarPauta(ev) {
   if (editandoId) {
     r = await gravar("EDITAR_IDEIA", { ...dados, idIdeia: editandoId, status: $("#pStatus").value });
   } else {
-    r = await gravar("CRIAR_IDEIA", dados);
+    r = await gravar("CRIAR_IDEIA", { ...dados, idGrupo: estado.grupo });
     if (r && r.id) { estado.selecionada = r.id; estado.aba = "discussao"; renderizarTudo(); }
   }
   if (r) $("#modalPauta").close();
@@ -749,7 +858,7 @@ let sugestoesPautas = [];
 
 async function gerarSugestoesPautas(ev) {
   ev.preventDefault();
-  const r = await api("IA_SUGERIR_PAUTAS", { tema: $("#iaTema").value });
+  const r = await api("IA_SUGERIR_PAUTAS", { tema: $("#iaTema").value, idGrupo: estado.grupo });
   if (r.status !== "success") return aviso(r.message, true);
   sugestoesPautas = r.sugestoes || [];
   renderizarSugestoesPautas();
@@ -769,7 +878,7 @@ function renderizarSugestoesPautas() {
 
 async function adotarPauta(idx) {
   const s = sugestoesPautas[idx];
-  const r = await gravar("CRIAR_IDEIA", { titulo: s.titulo, descricao: s.descricao, autor: "Sugestão IA" });
+  const r = await gravar("CRIAR_IDEIA", { titulo: s.titulo, descricao: s.descricao, idGrupo: estado.grupo });
   if (r) { s.adotado = true; renderizarSugestoesPautas(); }
 }
 
@@ -875,6 +984,9 @@ async function irParaCitacao(idCitacao, aba) {
   estado.aba = aba;
   estado.filtroTipo = "";
   estado.citacaoOrigem = aba === "encaminhamentos" ? idCitacao : null;
+  // A citação pode ser de uma pauta de outro GT: abre o GT certo antes
+  const ideia = estado.dados.ideias.find(i => String(i.ID_Ideia) === String(c.ID_Ideia));
+  if (ideia && grupoDe(ideia) !== estado.grupo) abrirGrupo(grupoDe(ideia));
   const pendente = selecionarPauta(c.ID_Ideia);
   if (!detalheDe(c.ID_Ideia)) await pendente;
   const alvo = aba === "encaminhamentos" ? $("#eAcao") : document.getElementById("int-" + c.ID_Interacao);
@@ -1087,6 +1199,16 @@ $("#formSenha").addEventListener("submit", async ev => {
 });
 
 $("#btnSair").addEventListener("click", sair);
+$("#listaGrupos").addEventListener("click", ev => {
+  const card = ev.target.closest("[data-grupo]");
+  if (card) { abrirGrupo(card.dataset.grupo); window.scrollTo(0, 0); }
+});
+$("#btnVoltarGrupos").addEventListener("click", voltarAosGrupos);
+$("#btnNovoGrupo").addEventListener("click", () => abrirModalGrupo());
+$("#btnEditarGrupo").addEventListener("click", () => abrirModalGrupo(grupoAtual()));
+$("#btnCancelarGrupo").addEventListener("click", () => $("#modalGrupo").close());
+$("#btnAtivarGrupo").addEventListener("click", alternarGrupoAtivo);
+$("#formGrupo").addEventListener("submit", salvarGrupo);
 $("#btnAtualizar").addEventListener("click", () => carregar());
 $("#busca").addEventListener("input", renderizarLista);
 $("#filtroStatus").addEventListener("change", renderizarLista);
@@ -1195,7 +1317,13 @@ detalhe.addEventListener("submit", async ev => {
 const demoBanco = {
   ideias: [
     { ID_Ideia: "IDEIA-1", Data_Criacao: "2026-10-20T13:00:00.000Z", Titulo: "Política de uso de IA generativa", Descricao: "Definir regras para uso de ferramentas de IA pelos servidores, incluindo dados que podem ou não ser enviados.", Status: "Em Debate", Link_Doc_Oficial: "", Autor: "Ana" },
-    { ID_Ideia: "IDEIA-2", Data_Criacao: "2026-10-27T13:00:00.000Z", Titulo: "Renovação do parque de notebooks", Descricao: "Levantar a necessidade de substituição dos equipamentos com mais de 5 anos.", Status: "Em Redação", Link_Doc_Oficial: "https://docs.google.com/document/d/EXEMPLO/edit", Autor: "Bruno" }
+    { ID_Ideia: "IDEIA-2", Data_Criacao: "2026-10-27T13:00:00.000Z", Titulo: "Renovação do parque de notebooks", Descricao: "Levantar a necessidade de substituição dos equipamentos com mais de 5 anos.", Status: "Em Redação", Link_Doc_Oficial: "https://docs.google.com/document/d/EXEMPLO/edit", Autor: "Bruno" },
+    { ID_Ideia: "IDEIA-3", ID_Grupo: "GT-COMPRAS", Data_Criacao: "2026-10-29T13:00:00.000Z", Titulo: "Calendário de licitações 2027", Descricao: "Consolidar as demandas de compra das áreas e definir o calendário anual de licitações.", Status: "Em Debate", Link_Doc_Oficial: "", Autor: "Ana Souza" }
+  ],
+  // IDEIA-1 e IDEIA-2 não têm ID_Grupo (como numa planilha antiga) → GT-Sistemas
+  grupos: [
+    { ID_Grupo: "GT-SISTEMAS", Nome: "GT-Sistemas", Descricao: "Sistemas, infraestrutura e governança de TI", Ativo: "Sim" },
+    { ID_Grupo: "GT-COMPRAS", Nome: "GT-Compras", Descricao: "Planejamento de compras e contratos", Ativo: "Sim" }
   ],
   interacoes: [
     { ID_Interacao: "INT-2", ID_Ideia: "IDEIA-1", ID_Pai: "", Tipo: "Sugestão", Autor: "Bruno", Texto: "Criar uma lista de ferramentas homologadas.", Data: "2026-10-21T10:00:00.000Z" },
@@ -1216,6 +1344,8 @@ const demoBanco = {
 };
 demoBanco.interacoes.push({ ID_Interacao: "INT-3", ID_Ideia: "IDEIA-2", ID_Pai: "", Tipo: "Sugestão", Autor: "Ana Souza", Texto: "@marco.nunes você consegue levantar o orçamento disponível?", Data: "2026-11-01T12:00:00.000Z" });
 demoBanco.citacoes.push({ ID_Citacao: "CIT-1", ID_Ideia: "IDEIA-2", ID_Interacao: "INT-3", Apelido: "marco.nunes", Autor: "Ana Souza", Trecho: "@marco.nunes você consegue levantar o orçamento disponível?", Status: "Pendente", Data: "2026-11-01T12:00:00.000Z" });
+demoBanco.interacoes.push({ ID_Interacao: "INT-4", ID_Ideia: "IDEIA-3", ID_Pai: "", Tipo: "Sugestão", Autor: "Ana Souza", Texto: "@marco.nunes inclua as renovações de licenças de software no calendário.", Data: "2026-11-02T12:00:00.000Z" });
+demoBanco.citacoes.push({ ID_Citacao: "CIT-2", ID_Ideia: "IDEIA-3", ID_Interacao: "INT-4", Apelido: "marco.nunes", Autor: "Ana Souza", Trecho: "@marco.nunes inclua as renovações de licenças de software no calendário.", Status: "Pendente", Data: "2026-11-02T12:00:00.000Z" });
 
 // Sessões do demo sobrevivem ao recarregar a página (como o token real no CacheService)
 const demoSessoes = (() => {
@@ -1275,7 +1405,12 @@ function demoResumo(sessao) {
     nivelAcesso: nivel,
     usuario: { nome: sessao.nome, apelido: sessao.apelido, nivel },
     hoje,
-    dados: { ideias, usuarios, citacoes: meu ? copia.citacoes.filter(c => c.Apelido === meu) : [] },
+    dados: {
+      ideias: ideias.map(i => ({ ...i, ID_Grupo: grupoDe(i) })),
+      grupos: copia.grupos.filter(g => nivel === "ADMIN" || grupoAtivo(g)),
+      usuarios,
+      citacoes: meu ? copia.citacoes.filter(c => c.Apelido === meu) : []
+    },
     listas: { PERFIS: Object.keys(DEMO_NIVEL) }
   };
 }
@@ -1340,7 +1475,9 @@ async function demoExecutar(req) {
   switch (req.acao) {
     case "CRIAR_IDEIA": {
       const id = "IDEIA-" + Date.now();
-      demoBanco.ideias.push({ ID_Ideia: id, Data_Criacao: agora, Titulo: req.titulo, Descricao: req.descricao, Status: "Em Debate", Link_Doc_Oficial: req.linkDoc || "", Autor: req.autor });
+      const g = demoBanco.grupos.find(x => x.ID_Grupo === (req.idGrupo || GRUPO_PADRAO.ID_Grupo));
+      if (!g || !grupoAtivo(g)) return { status: "error", message: "Grupo de trabalho não encontrado ou desativado." };
+      demoBanco.ideias.push({ ID_Ideia: id, ID_Grupo: g.ID_Grupo, Data_Criacao: agora, Titulo: req.titulo, Descricao: req.descricao, Status: "Em Debate", Link_Doc_Oficial: req.linkDoc || "", Autor: req.autor });
       return { ...ok("Pauta cadastrada!"), id };
     }
     case "EDITAR_IDEIA": {
@@ -1366,6 +1503,28 @@ async function demoExecutar(req) {
       demoBanco.encaminhamentos.push({ ID_Encaminhamento: "ENC-" + Date.now(), ID_Ideia: req.idIdeia, Acao: req.acaoTexto, Responsavel: req.responsavel, Prazo: req.prazo, Status: "Pendente" });
       if (req.idCitacao) demoBanco.citacoes.find(c => c.ID_Citacao === req.idCitacao).Status = "Encaminhada";
       return ok("Encaminhamento registrado!");
+    case "CRIAR_GRUPO": case "EDITAR_GRUPO": {
+      if (nivel !== "ADMIN") return { status: "error", message: "Apenas administradores gerenciam os grupos de trabalho." };
+      const nome = String(req.nome ?? "").trim();
+      const mesmoNome = x => String(x.Nome).toLowerCase() === nome.toLowerCase();
+      if (req.acao === "CRIAR_GRUPO") {
+        if (!nome) return { status: "error", message: "Informe o nome do grupo de trabalho." };
+        if (demoBanco.grupos.some(mesmoNome)) return { status: "error", message: `Já existe um grupo de trabalho chamado "${nome}".` };
+        const idGrupo = "GT-" + Date.now();
+        demoBanco.grupos.push({ ID_Grupo: idGrupo, Nome: nome, Descricao: req.descricao || "", Ativo: "Sim" });
+        return { ...ok(`Grupo "${nome}" criado!`), idGrupo };
+      }
+      const g = demoBanco.grupos.find(x => x.ID_Grupo === req.idGrupo);
+      if (!g) return { status: "error", message: "Grupo de trabalho não encontrado." };
+      if (req.nome !== undefined) {
+        if (!nome) return { status: "error", message: "O nome não pode ficar vazio." };
+        if (demoBanco.grupos.some(x => x !== g && mesmoNome(x))) return { status: "error", message: "Já existe um grupo de trabalho com esse nome." };
+        g.Nome = nome;
+      }
+      if (req.descricao !== undefined) g.Descricao = req.descricao;
+      if (req.ativo !== undefined) g.Ativo = req.ativo ? "Sim" : "Não";
+      return ok(req.ativo === false ? "Grupo desativado." : req.ativo === true ? "Grupo reativado." : "Grupo atualizado!");
+    }
     case "EXCLUIR_INTERACAO": {
       if (nivel !== "ADMIN") return { status: "error", message: "Apenas administradores podem excluir sugestões e comentários." };
       const alvo = demoBanco.interacoes.find(i => i.ID_Interacao === req.idInteracao);

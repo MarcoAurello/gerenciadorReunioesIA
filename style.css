@@ -496,6 +496,41 @@ textarea { resize: vertical; }
 .st-encaminhada { background: var(--info-fundo); color: var(--info); }
 .st-resolvida { background: var(--sucesso-fundo); color: var(--sucesso); }
 
+/* ---------- Grupos de trabalho ---------- */
+.cab-pagina { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 16px; }
+.cab-pagina h1 { font-size: 22px; color: var(--primaria); }
+.cab-pagina p { margin: 4px 0 0; color: var(--texto-suave); }
+.cab-pagina p:empty { display: none; }
+.btn-voltar {
+  font: inherit; font-size: 13px; font-weight: 600;
+  background: none; border: none; padding: 0; margin-bottom: 6px;
+  color: var(--texto-suave); cursor: pointer;
+}
+.btn-voltar:hover { color: var(--primaria); }
+.grupos { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.grupo-card {
+  text-align: left; font: inherit; color: inherit;
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-top: 4px solid var(--primaria);
+  border-radius: var(--raio);
+  padding: 16px 18px;
+  box-shadow: var(--sombra);
+  cursor: pointer;
+  display: grid; gap: 10px;
+  transition: border-color .15s, box-shadow .15s;
+}
+.grupo-card:hover { border-color: #e6c75a; border-top-color: var(--primaria); box-shadow: 0 0 0 3px #fdf0b8; }
+.grupo-card.inativo { opacity: .55; border-top-color: var(--neutro); }
+.grupo-card h3 { font-size: 17px; display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.grupo-card p { margin: 0; color: var(--texto-suave); font-size: 13px; }
+.grupo-numeros { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding-top: 10px; border-top: 1px solid var(--borda); }
+.grupo-numeros div { text-align: center; }
+.grupo-numeros strong { display: block; font-size: 18px; }
+.grupo-numeros span { font-size: 11px; color: var(--texto-suave); line-height: 1.2; display: block; }
+.grupo-numeros .perigo strong { color: var(--perigo); }
+.cab-grupo h1 { margin-top: 2px; }
+
 /* ---------- Carga em segundo plano ---------- */
 .sincronizando { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: rgba(255,255,255,.85); margin-right: 4px; }
 .mini-spinner {
@@ -555,6 +590,8 @@ textarea { resize: vertical; }
   .topo-acoes .btn { padding: 6px 8px; font-size: 12px; }
   .conteudo { padding: 16px; }
   .barra { flex-wrap: wrap; }
+  .cab-pagina { flex-direction: column; align-items: stretch; }
+  .cab-pagina .btn { width: 100%; }
   .barra select { width: 100%; }
   .barra .btn { width: 100%; }
   .form-ia { flex-direction: column; }

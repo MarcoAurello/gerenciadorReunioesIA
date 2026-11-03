@@ -26,11 +26,12 @@ const PERFIS = { "Administrador": "ADMIN", "Colaborador": "ESCRITA", "Leitura": 
 const ABAS = {
   ideias: {
     nome: "Ideias_GT",
-    colunas: ["ID_Ideia", "Data_Criacao", "Titulo", "Descricao", "Status",
+    colunas: ["ID_Ideia", "ID_Grupo", "Data_Criacao", "Titulo", "Descricao", "Status",
               "Link_Doc_Oficial", "Autor", "Atualizado_Em"],
     // Outros nomes aceitos no cabeçalho (sem acento, minúsculo, só letras/números)
     apelidos: {
       ID_Ideia: ["id", "codigo"],
+      ID_Grupo: ["grupo", "gt", "idgt"],
       Data_Criacao: ["data", "datacadastro", "criadoem", "datahora", "timestamp"],
       Titulo: ["assunto", "tema", "pauta", "ideia"],
       Descricao: ["contexto", "detalhes", "descricaocontexto"],
@@ -67,8 +68,27 @@ const ABAS = {
     nome: "Citacoes_GT",
     colunas: ["ID_Citacao", "ID_Ideia", "ID_Interacao", "Apelido", "Autor", "Trecho",
               "Status", "Data", "Atualizado_Em"]
+  },
+  grupos: {
+    nome: "Grupos_GT",
+    colunas: ["ID_Grupo", "Nome", "Descricao", "Ativo", "Data_Criacao"]
   }
 };
+
+// Pautas sem grupo (criadas antes dos GTs) pertencem a este grupo
+const GRUPO_PADRAO = { ID_Grupo: "GT-SISTEMAS", Nome: "GT-Sistemas", Descricao: "", Ativo: "Sim" };
+const grupoDaIdeia = function (i) { return String(i.ID_Grupo || "") || GRUPO_PADRAO.ID_Grupo; };
+
+/** Grupos cadastrados; o GT-Sistemas existe sempre, mesmo antes de ser gravado na aba. */
+function lerGrupos(ss) {
+  const grupos = lerAba(ss, ABAS.grupos).slice();
+  if (!grupos.some(function (g) { return String(g.ID_Grupo) === GRUPO_PADRAO.ID_Grupo; })) {
+    grupos.unshift(Object.assign({}, GRUPO_PADRAO));
+  }
+  return grupos;
+}
+
+const grupoAtivo = function (g) { return g.Ativo === true || /^(sim|true)$/i.test(String(g.Ativo)); };
 
 const STATUS_IDEIA = ["Em Debate", "Em Redação", "Aprovada", "Arquivada"];
 const TIPOS_INTERACAO = ["Comentário", "Sugestão"];
@@ -120,12 +140,17 @@ function doPost(e) {
       ATUALIZAR_CITACAO: atualizarCitacao,
       CRIAR_USUARIO: criarUsuario,
       EDITAR_USUARIO: editarUsuario,
-      EXCLUIR_INTERACAO: excluirInteracao
+      EXCLUIR_INTERACAO: excluirInteracao,
+      CRIAR_GRUPO: criarGrupo,
+      EDITAR_GRUPO: editarGrupo
     };
     const handler = handlers[acao];
     if (!handler) return erro("Ação desconhecida: " + acao);
     if ((acao === "CRIAR_USUARIO" || acao === "EDITAR_USUARIO") && sessao.nivel !== "ADMIN") {
       return erro("Apenas administradores gerenciam usuários.");
+    }
+    if ((acao === "CRIAR_GRUPO" || acao === "EDITAR_GRUPO") && sessao.nivel !== "ADMIN") {
+      return erro("Apenas administradores gerenciam os grupos de trabalho.");
     }
     if (acao === "EXCLUIR_INTERACAO" && sessao.nivel !== "ADMIN") {
       return erro("Apenas administradores podem excluir sugestões e comentários.");
@@ -189,6 +214,7 @@ function montarResumo(sessao) {
     const c = cont[String(i.ID_Ideia)] || { sug: 0, com: 0, enc: 0, abertos: 0, atrasados: 0 };
     const desc = String(i.Descricao || "");
     return Object.assign({}, i, {
+      ID_Grupo: grupoDaIdeia(i),
       Descricao: desc.slice(0, LIMITE_DESCRICAO_RESUMO),
       Descricao_Completa: desc.length <= LIMITE_DESCRICAO_RESUMO,
       Qtd_Sugestoes: c.sug,
@@ -210,6 +236,8 @@ function montarResumo(sessao) {
     hoje: hoje,
     dados: {
       ideias: ideias,
+      // GTs desativados só aparecem para o administrador (que pode reativá-los)
+      grupos: lerGrupos(ss).filter(function (g) { return nivel === "ADMIN" || grupoAtivo(g); }),
       usuarios: lerAba(ss, ABAS.usuarios).map(function (u) {
         // Hash nunca sai do servidor; e-mail e perfil só para administradores
         const pub = { ID_Usuario: u.ID_Usuario, Nome: u.Nome, Apelido: u.Apelido, Ativo: u.Ativo };
@@ -234,7 +262,7 @@ function montarDetalhe(idIdeia) {
   if (!ideia) return null;
   return {
     idIdeia: id,
-    ideia: ideia,
+    ideia: Object.assign({}, ideia, { ID_Grupo: grupoDaIdeia(ideia) }),
     interacoes: lerAba(ss, ABAS.interacoes).filter(function (i) { return String(i.ID_Ideia) === id; }),
     encaminhamentos: lerAba(ss, ABAS.encaminhamentos).filter(function (e) { return String(e.ID_Ideia) === id; })
   };
@@ -264,11 +292,15 @@ function criarIdeia(req) {
   if (!titulo) return erro("Informe o título da pauta.");
   const link = linkDoc(req.linkDoc);
   if (link === null) return erro("O link do texto oficial deve ser um endereço do Google Docs/Drive.");
+  const idGrupo = String(req.idGrupo || GRUPO_PADRAO.ID_Grupo);
+  const grupo = lerGrupos(SpreadsheetApp.getActiveSpreadsheet()).filter(function (g) { return String(g.ID_Grupo) === idGrupo; })[0];
+  if (!grupo || !grupoAtivo(grupo)) return erro("Grupo de trabalho não encontrado ou desativado.");
 
   const agora = new Date();
   const id = "IDEIA-" + agora.getTime();
   inserir(ABAS.ideias, {
     ID_Ideia: id,
+    ID_Grupo: idGrupo,
     Data_Criacao: agora,
     Titulo: titulo,
     Descricao: texto(req.descricao, 5000),
@@ -278,6 +310,42 @@ function criarIdeia(req) {
     Atualizado_Em: agora
   });
   return respostaJSON({ status: "success", message: "Pauta cadastrada!", id: id });
+}
+
+/* ---------- Grupos de trabalho (somente administrador) ---------- */
+
+function criarGrupo(req) {
+  const nome = texto(req.nome, 80);
+  if (!nome) return erro("Informe o nome do grupo de trabalho.");
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (lerGrupos(ss).some(function (g) { return normalizar(g.Nome) === normalizar(nome); })) {
+    return erro("Já existe um grupo de trabalho chamado \"" + nome + "\".");
+  }
+  const id = "GT-" + new Date().getTime();
+  inserir(ABAS.grupos, { ID_Grupo: id, Nome: nome, Descricao: texto(req.descricao, 500), Ativo: "Sim", Data_Criacao: new Date() });
+  return respostaJSON({ status: "success", message: "Grupo \"" + nome + "\" criado!", idGrupo: id });
+}
+
+function editarGrupo(req) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const id = String(req.idGrupo || "");
+  const grupo = lerGrupos(ss).filter(function (g) { return String(g.ID_Grupo) === id; })[0];
+  if (!grupo) return erro("Grupo de trabalho não encontrado.");
+
+  const campos = {};
+  if (req.nome !== undefined) {
+    campos.Nome = texto(req.nome, 80);
+    if (!campos.Nome) return erro("O nome não pode ficar vazio.");
+    const repetido = lerGrupos(ss).some(function (g) { return String(g.ID_Grupo) !== id && normalizar(g.Nome) === normalizar(campos.Nome); });
+    if (repetido) return erro("Já existe um grupo de trabalho com esse nome.");
+  }
+  if (req.descricao !== undefined) campos.Descricao = texto(req.descricao, 500);
+  if (req.ativo !== undefined) campos.Ativo = req.ativo ? "Sim" : "Não";
+
+  // O GT-Sistemas pode ainda não estar gravado na aba (planilhas antigas): grava antes de editar
+  if (!existe(ABAS.grupos, "ID_Grupo", id)) inserir(ABAS.grupos, Object.assign({}, grupo, { Data_Criacao: new Date() }));
+  atualizar(ABAS.grupos, "ID_Grupo", id, campos);
+  return respostaJSON({ status: "success", message: req.ativo === false ? "Grupo desativado." : req.ativo === true ? "Grupo reativado." : "Grupo atualizado!" });
 }
 
 function editarIdeia(req) {
@@ -675,8 +743,12 @@ function chamarIA(prompt) {
 
 function iaSugerirPautas(req) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const ideias = lerAba(ss, ABAS.ideias);
-  const encs = lerAba(ss, ABAS.encaminhamentos);
+  // Só o contexto do GT aberto: cada grupo tem as suas pautas
+  const idGrupo = String(req.idGrupo || GRUPO_PADRAO.ID_Grupo);
+  const grupo = lerGrupos(ss).filter(function (g) { return String(g.ID_Grupo) === idGrupo; })[0] || GRUPO_PADRAO;
+  const ideias = lerAba(ss, ABAS.ideias).filter(function (i) { return grupoDaIdeia(i) === idGrupo; });
+  const idsDoGrupo = ideias.map(function (i) { return String(i.ID_Ideia); });
+  const encs = lerAba(ss, ABAS.encaminhamentos).filter(function (e) { return idsDoGrupo.indexOf(String(e.ID_Ideia)) >= 0; });
 
   const existentes = ideias.map(function (i) {
     return "- [" + i.Status + "] " + i.Titulo + (i.Descricao ? ": " + String(i.Descricao).slice(0, 300) : "");
@@ -686,7 +758,8 @@ function iaSugerirPautas(req) {
     .join("\n") || "(nenhum)";
 
   const prompt =
-    "Você assessora um grupo de trabalho que organiza reuniões, pautas e encaminhamentos.\n" +
+    "Você assessora o grupo de trabalho \"" + grupo.Nome + "\"" + (grupo.Descricao ? " (" + grupo.Descricao + ")" : "") +
+    ", que organiza reuniões, pautas e encaminhamentos.\n" +
     "Sugira de 3 a 5 NOVAS pautas para as próximas reuniões, sem repetir as existentes.\n" +
     (req.tema ? "Foco solicitado pelo grupo: " + texto(req.tema, 500) + "\n" : "") +
     "\nPautas já cadastradas:\n" + existentes +
@@ -1053,6 +1126,10 @@ function configurar() {
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   Object.keys(ABAS).forEach(function (k) { garantirAba(ss, ABAS[k]); });
+  // Registra o GT-Sistemas, a que pertencem as pautas sem grupo
+  if (!existe(ABAS.grupos, "ID_Grupo", GRUPO_PADRAO.ID_Grupo)) {
+    inserir(ABAS.grupos, Object.assign({}, GRUPO_PADRAO, { Data_Criacao: new Date() }));
+  }
   Logger.log("Planilha configurada. Entre com o usuário admin e a SENHA_ADMIN para cadastrar os usuários.");
 }
 

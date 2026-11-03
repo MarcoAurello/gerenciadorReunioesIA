@@ -41,6 +41,12 @@ flowchart TD
     E -.muda status.-> S[Em Debate → Em Redação → Aprovada / Arquivada]
 ```
 
+**Grupos de trabalho (GTs):** cada pauta pertence a um GT.
+- Ao entrar, aparece a **lista de GTs**, com o número de pautas ativas, as em debate e as ações em aberto e atrasadas de cada um. Ao clicar num GT, abre o painel com as pautas dele, e **"← Todos os GTs"** volta à lista.
+- Só o **administrador** cria, renomeia, descreve e desativa GTs. Um GT desativado some para os demais usuários, mas as pautas dele ficam guardadas.
+- As pautas criadas antes dos GTs, sem `ID_Grupo`, pertencem ao **GT-Sistemas**.
+- Nova pauta e "Sugerir pautas com IA" valem para o GT aberto. O sino de citações reúne todos os GTs, e ao abrir uma citação o sistema vai para o GT dela.
+
 **Sugestões e comentários:** na aba **Sugestões**, o colaborador registra sugestões para a pauta. Cada sugestão tem os **próprios comentários** logo abaixo, com uma caixa "Comentar" em cada uma. Na planilha, o comentário guarda na coluna `ID_Pai` o ID da sugestão a que pertence. Comentários antigos, de antes dessa mudança, aparecem em "Comentários gerais anteriores".
 O **administrador** vê uma lixeira em cada sugestão e em cada comentário. Ao excluir uma sugestão, os comentários dela e as citações ligadas a eles também são apagados da planilha. O sistema pede confirmação antes, e a exclusão não pode ser desfeita.
 
@@ -89,7 +95,7 @@ flowchart LR
 2. Substitua todo o conteúdo pelo arquivo `Code.gs` e salve.
 3. No menu de funções, selecione **`configurar`** e clique em **Executar**. Autorize quando o Google pedir.
    - Rode de novo sempre que colar uma versão nova do código. Assim o Google pede as autorizações novas, como e-mail e IA. Sem isso, a API falha.
-   - Cria ou ajusta as abas `Ideias_GT`, `Interacoes_GT`, `Encaminhamentos_GT`, `Usuarios_GT` e `Citacoes_GT`, com cabeçalho e colunas que faltarem. Planilhas antigas continuam funcionando.
+   - Cria ou ajusta as abas `Ideias_GT` (com a coluna `ID_Grupo`), `Interacoes_GT`, `Encaminhamentos_GT`, `Usuarios_GT`, `Citacoes_GT` e `Grupos_GT`, e registra o GT-Sistemas, com cabeçalho e colunas que faltarem. Planilhas antigas continuam funcionando.
    - Se não houver `SENHA_ADMIN`, gera uma senha aleatória e mostra no **Registro de execução** (anote). Se existir uma `SENHA_ESCRITA` antiga, ela vira a `SENHA_ADMIN`.
    - Nenhuma senha fica no código: todas vêm das Propriedades do script.
 4. Vá em **Configurações do projeto (⚙) → Propriedades do script** e defina:
