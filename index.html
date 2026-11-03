@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sistema de Reuniões e Encaminhamentos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ============ LOGIN ============ -->
+  <section id="telaLogin" class="login">
+    <div class="login-card">
+      <div class="marca">
+        <div class="marca-icone" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M4 5h16v10H8l-4 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M8 9h8M8 12h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </div>
+        <div>
+          <h1>Sistema de Reuniões<br>e Encaminhamentos</h1>
+          <p>Pautas, discussões, encaminhamentos e textos oficiais em um só lugar.</p>
+        </div>
+      </div>
+
+      <form id="formLogin">
+        <label for="usuarioInput">Usuário</label>
+        <input type="text" id="usuarioInput" placeholder="@seu.apelido" autocomplete="username" autocapitalize="none" spellcheck="false">
+        <label for="senhaInput">Senha</label>
+        <input type="password" id="senhaInput" placeholder="Sua senha" autocomplete="current-password" required>
+        <button type="submit" class="btn btn-primario btn-bloco" id="btnEntrar">Entrar</button>
+        <p id="erroLogin" class="msg-erro" hidden></p>
+        <p class="dica-login">Só quer acompanhar? Deixe o usuário em branco e use a senha de observador.</p>
+      </form>
+
+      <ul class="perfis">
+        <li><span class="selo selo-leitura">Leitura</span> Acompanha o que está sendo debatido</li>
+        <li><span class="selo selo-escrita">Colaborador</span> Constrói as pautas, comenta e encaminha</li>
+        <li><span class="selo selo-admin">Administrador</span> Também cadastra usuários e senhas</li>
+      </ul>
+    </div>
+    <p class="login-rodape">Desenvolvido por <strong>GTIC Hemobrás</strong></p>
+  </section>
+
+  <!-- ============ APLICAÇÃO ============ -->
+  <div id="telaApp" hidden>
+    <header class="topo">
+      <div class="topo-marca">
+        <div class="marca-icone pequeno" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M4 5h16v10H8l-4 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M8 9h8M8 12h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </div>
+        <span>Reuniões e Encaminhamentos</span>
+      </div>
+      <div class="topo-acoes">
+        <span class="sincronizando" id="sincronizando" hidden><span class="mini-spinner" aria-hidden="true"></span>Atualizando…</span>
+        <span class="eu" id="nomeLogado"></span>
+        <button class="btn btn-fantasma btn-sino" id="btnCitacoes" title="Citações para você">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4zM10 20a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+          <span class="badge" id="badgeCitacoes" hidden>0</span>
+        </button>
+        <button class="btn btn-fantasma somente-admin" id="btnUsuarios">Usuários</button>
+        <button class="btn btn-fantasma" id="btnSenha" title="Alterar minha senha">Senha</button>
+        <span id="seloPerfil" class="selo"></span>
+        <button class="btn btn-fantasma" id="btnAtualizar" title="Recarregar dados">Atualizar</button>
+        <button class="btn btn-fantasma" id="btnSair">Sair</button>
+      </div>
+    </header>
+
+    <main class="conteudo">
+      <!-- Indicadores -->
+      <section class="kpis" id="kpis"></section>
+
+      <!-- Barra de ferramentas -->
+      <section class="barra">
+        <input type="search" id="busca" placeholder="Buscar pauta por título ou descrição...">
+        <select id="filtroStatus">
+          <option value="">Todos os status</option>
+        </select>
+        <button class="btn btn-ia somente-escrita" id="btnIaPautas">✦ Sugerir pautas com IA</button>
+        <button class="btn btn-primario somente-escrita" id="btnNovaPauta">+ Nova pauta</button>
+      </section>
+
+      <div class="layout">
+        <!-- Lista de pautas -->
+        <section class="lista" id="listaPautas" aria-label="Pautas"></section>
+
+        <!-- Detalhe da pauta -->
+        <section class="detalhe" id="detalhe" aria-live="polite">
+          <div class="vazio">
+            <p>Selecione uma pauta para ver a discussão, os encaminhamentos e o texto oficial.</p>
+          </div>
+        </section>
+      </div>
+    </main>
+    <footer class="rodape-app">Sistema de Reuniões e Encaminhamentos · Desenvolvido por <strong>GTIC Hemobrás</strong></footer>
+  </div>
+
+  <!-- ============ MODAL NOVA/EDITAR PAUTA ============ -->
+  <dialog id="modalPauta" class="modal">
+    <form id="formPauta" method="dialog">
+      <h2 id="modalPautaTitulo">Nova pauta</h2>
+      <label for="pTitulo">Título *</label>
+      <input type="text" id="pTitulo" maxlength="200" required>
+
+      <label for="pDescricao">Descrição / contexto</label>
+      <textarea id="pDescricao" rows="5" maxlength="5000"></textarea>
+
+      <label for="pLink">Link do texto oficial (Google Docs)</label>
+      <input type="url" id="pLink" placeholder="https://docs.google.com/document/d/...">
+
+      <div id="campoStatus" hidden>
+        <label for="pStatus">Status</label>
+        <select id="pStatus"></select>
+      </div>
+
+      <p id="erroPauta" class="msg-erro" hidden></p>
+      <div class="modal-acoes">
+        <button type="button" class="btn btn-fantasma" id="btnCancelarPauta">Cancelar</button>
+        <button type="submit" class="btn btn-primario" id="btnSalvarPauta">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ============ MODAL IA — SUGERIR PAUTAS ============ -->
+  <dialog id="modalIa" class="modal modal-largo">
+    <h2>✦ Sugestões de pautas pela IA</h2>
+    <p class="nota-ia">A IA analisa as pautas e encaminhamentos existentes. Nada é salvo até você clicar em <strong>Adotar</strong>.</p>
+    <form id="formIa" class="form-ia">
+      <input type="text" id="iaTema" placeholder="Foco opcional (ex.: segurança da informação, orçamento 2027)">
+      <button type="submit" class="btn btn-ia">Gerar sugestões</button>
+    </form>
+    <div id="iaResultado" class="ia-resultado"></div>
+    <div class="modal-acoes">
+      <button type="button" class="btn btn-fantasma" id="btnFecharIa">Fechar</button>
+    </div>
+  </dialog>
+
+  <!-- ============ MODAL CITAÇÕES ============ -->
+  <dialog id="modalCitacoes" class="modal modal-largo">
+    <h2>Citações para você</h2>
+    <p class="nota-ia" id="citacoesSub"></p>
+    <div class="filtro-tipo" id="filtroCitacoes">
+      <button class="chip ativo" data-fcit="Pendente">Pendentes</button>
+      <button class="chip" data-fcit="">Todas</button>
+    </div>
+    <div id="listaCitacoes" class="ia-resultado"></div>
+    <div class="modal-acoes">
+      <button type="button" class="btn btn-fantasma" id="btnFecharCitacoes">Fechar</button>
+    </div>
+  </dialog>
+
+  <!-- ============ MODAL USUÁRIOS ============ -->
+  <dialog id="modalUsuarios" class="modal modal-largo">
+    <h2>Usuários</h2>
+    <p class="nota-ia">Cada pessoa entra com o <strong>@apelido</strong> e a senha definida aqui, e pode trocá-la depois no botão <strong>Senha</strong>. Também pode ser citada nos comentários.</p>
+    <form id="formUsuario" class="form-inline" style="margin-top:0;padding-top:0;border-top:none" autocomplete="off">
+      <div class="linha tres">
+        <input type="text" id="uNome" placeholder="Nome completo *" maxlength="120" required>
+        <input type="text" id="uApelido" placeholder="apelido (ex.: marco.nunes)" maxlength="60">
+        <input type="email" id="uEmail" placeholder="E-mail (opcional)" maxlength="200">
+      </div>
+      <div class="linha">
+        <select id="uPerfil" aria-label="Perfil">
+          <option>Colaborador</option>
+          <option>Leitura</option>
+          <option>Administrador</option>
+        </select>
+        <input type="password" id="uSenha" placeholder="Senha inicial * (mín. 6)" minlength="6" maxlength="100" autocomplete="new-password" required>
+      </div>
+      <div class="rodape"><button class="btn btn-primario" type="submit">Cadastrar usuário</button></div>
+    </form>
+    <div id="listaUsuarios" style="margin-top:16px"></div>
+    <div class="modal-acoes">
+      <button type="button" class="btn btn-fantasma" id="btnFecharUsuarios">Fechar</button>
+    </div>
+  </dialog>
+
+  <!-- ============ MODAL ALTERAR SENHA ============ -->
+  <dialog id="modalSenha" class="modal">
+    <form id="formSenha">
+      <h2>Alterar minha senha</h2>
+      <label for="sAtual">Senha atual</label>
+      <input type="password" id="sAtual" autocomplete="current-password" required>
+      <label for="sNova">Nova senha (mín. 6 caracteres)</label>
+      <input type="password" id="sNova" minlength="6" maxlength="100" autocomplete="new-password" required>
+      <label for="sConfirma">Confirme a nova senha</label>
+      <input type="password" id="sConfirma" minlength="6" maxlength="100" autocomplete="new-password" required>
+      <p id="erroSenha" class="msg-erro" hidden></p>
+      <div class="modal-acoes">
+        <button type="button" class="btn btn-fantasma" id="btnCancelarSenha">Cancelar</button>
+        <button type="submit" class="btn btn-primario">Salvar senha</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Sugestões do @ (autocompletar) -->
+  <ul id="mencaoLista" class="mencao-lista" role="listbox" hidden></ul>
+
+  <!-- ============ LOADING ============ -->
+  <div id="loading" class="loading" hidden>
+    <div class="spinner" aria-hidden="true"></div>
+    <p>Aguarde...</p>
+  </div>
+
+  <!-- ============ AVISOS ============ -->
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
