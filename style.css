@@ -1,5 +1,5 @@
 /* ==========================================================
-   Sistema de Reuniões e Encaminhamentos — estilos
+   Sistema de Apoio a Reuniões — estilos
    ========================================================== */
 
 :root {
@@ -152,8 +152,9 @@ textarea { resize: vertical; }
   padding: 32px 28px;
   box-shadow: 0 20px 40px rgba(0, 0, 0, .2);
 }
-.marca { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 20px; }
-.marca h1 { font-size: 20px; color: var(--primaria); }
+.marca { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 14px; margin-bottom: 22px; }
+.marca h1 { font-size: 24px; color: var(--primaria); }
+.marca-logo { width: 96px; height: auto; }
 .marca p { margin: 6px 0 0; color: var(--texto-suave); font-size: 13px; }
 .marca-icone {
   flex: none;
@@ -187,7 +188,15 @@ textarea { resize: vertical; }
   background: var(--primaria);
   color: #fff;
 }
-.topo-marca { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 15px; }
+.topo-marca { display: flex; align-items: center; gap: 12px; font-weight: 600; font-size: 17px; }
+.topo-logo {
+  flex: none;
+  display: grid; place-items: center;
+  width: 46px; height: 46px;
+  border-radius: 10px;
+  background: #fff;
+}
+.topo-logo img { width: 32px; height: auto; }
 .topo-acoes { display: flex; align-items: center; gap: 8px; }
 
 /* ---------- Conteúdo ---------- */
@@ -552,6 +561,11 @@ textarea { resize: vertical; }
   font-weight: 600;
 }
 .loading p { margin: 0; }
+.loading-logo { position: relative; width: 120px; height: 120px; display: grid; place-items: center; }
+.loading-logo img { width: 64px; height: auto; animation: pulsar 1.6s ease-in-out infinite; }
+.loading-logo .spinner { position: absolute; inset: 0; width: auto; height: auto; }
+.loading-nome { font-size: 18px; }
+@keyframes pulsar { 50% { transform: scale(.9); opacity: .75; } }
 .spinner {
   width: 40px; height: 40px;
   border: 4px solid var(--primaria-clara);
@@ -583,6 +597,8 @@ textarea { resize: vertical; }
 @media (max-width: 600px) {
   .topo { padding: 10px 16px; }
   .topo-marca span { display: none; }
+  .topo-logo { width: 40px; height: 40px; }
+  .topo-logo img { width: 28px; }
   .topo-acoes { gap: 4px; }
   .eu, #seloPerfil { display: none; }
   .usuario-linha { flex-wrap: wrap; }

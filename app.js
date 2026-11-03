@@ -1,5 +1,5 @@
 /* ==========================================================
-   Sistema de Reuniões e Encaminhamentos — frontend
+   Sistema de Apoio a Reuniões — frontend
    Backend: Google Apps Script + Google Planilhas (Code.gs)
    ========================================================== */
 

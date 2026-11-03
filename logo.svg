@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 240" role="img" aria-label="Hemobrás">
+  <rect x="0" y="0" width="60" height="240" rx="30" fill="#7f121c"/>
+  <path d="M100 30a30 30 0 0 1 30-30h30a30 30 0 0 1 30 30v75H100z" fill="#7f121c"/>
+  <path d="M100 133h90v77a30 30 0 0 1-30 30h-30a30 30 0 0 1-30-30z" fill="#a59d98"/>
+  <rect x="230" y="0" width="60" height="240" rx="30" fill="#a59d98"/>
+</svg>

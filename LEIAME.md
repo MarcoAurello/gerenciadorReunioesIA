@@ -1,4 +1,4 @@
-# Sistema de Reuniões e Encaminhamentos
+# Sistema de Apoio a Reuniões
 
 Desenvolvido por **GTIC Hemobrás**.
 

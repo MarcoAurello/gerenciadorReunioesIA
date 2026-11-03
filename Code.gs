@@ -1,5 +1,5 @@
 /**
- * Sistema de Reuniões e Encaminhamentos — Backend (Google Apps Script)
+ * Sistema de Apoio a Reuniões — Backend (Google Apps Script)
  *
  * Acesso:
  *   Cada usuário entra com @apelido + senha própria (cadastrada na aba
@@ -100,7 +100,7 @@ const STATUS_CITACAO = ["Pendente", "Encaminhada", "Resolvida"];
 /* ------------------------------------------------------------------ */
 
 function doGet() {
-  return respostaJSON({ status: "success", message: "API do Sistema de Reuniões e Encaminhamentos ativa." });
+  return respostaJSON({ status: "success", message: "API do Sistema de Apoio a Reuniões ativa." });
 }
 
 function doPost(e) {
@@ -468,7 +468,7 @@ function notificarPorEmail(usuario, autor, idIdeia, conteudo) {
     MailApp.sendEmail({
       to: usuario.Email,
       subject: "Você foi citado(a) na pauta: " + (ideia ? ideia.Titulo : idIdeia),
-      body: autor + " citou você no Sistema de Reuniões e Encaminhamentos:\n\n\"" + conteudo +
+      body: autor + " citou você no Sistema de Apoio a Reuniões:\n\n\"" + conteudo +
             "\"\n\n" + (link ? "Acesse: " + link + "\n\n" : "") + "— GTIC Hemobrás"
     });
   } catch (e) {

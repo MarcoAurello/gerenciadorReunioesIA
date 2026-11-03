@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sistema de Reuniões e Encaminhamentos</title>
+  <title>Sistema de Apoio a Reuniões</title>
+  <link rel="icon" href="logo.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
@@ -14,11 +15,9 @@
   <section id="telaLogin" class="login">
     <div class="login-card">
       <div class="marca">
-        <div class="marca-icone" aria-hidden="true">
-          <svg viewBox="0 0 24 24"><path d="M4 5h16v10H8l-4 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M8 9h8M8 12h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        </div>
+        <img class="marca-logo" src="logo.svg" alt="Hemobrás">
         <div>
-          <h1>Sistema de Reuniões<br>e Encaminhamentos</h1>
+          <h1>Sistema de Apoio<br>a Reuniões</h1>
           <p>Pautas, discussões, encaminhamentos e textos oficiais em um só lugar.</p>
         </div>
       </div>
@@ -46,10 +45,8 @@
   <div id="telaApp" hidden>
     <header class="topo">
       <div class="topo-marca">
-        <div class="marca-icone pequeno" aria-hidden="true">
-          <svg viewBox="0 0 24 24"><path d="M4 5h16v10H8l-4 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M8 9h8M8 12h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        </div>
-        <span>Reuniões e Encaminhamentos</span>
+        <span class="topo-logo"><img src="logo.svg" alt="Hemobrás"></span>
+        <span>Sistema de Apoio a Reuniões</span>
       </div>
       <div class="topo-acoes">
         <span class="sincronizando" id="sincronizando" hidden><span class="mini-spinner" aria-hidden="true"></span>Atualizando…</span>
@@ -116,7 +113,7 @@
       </div>
       </section>
     </main>
-    <footer class="rodape-app">Sistema de Reuniões e Encaminhamentos · Desenvolvido por <strong>GTIC Hemobrás</strong></footer>
+    <footer class="rodape-app">Sistema de Apoio a Reuniões · Desenvolvido por <strong>GTIC Hemobrás</strong></footer>
   </div>
 
   <!-- ============ MODAL NOVO/EDITAR GT ============ -->
@@ -240,7 +237,11 @@
 
   <!-- ============ LOADING ============ -->
   <div id="loading" class="loading" hidden>
-    <div class="spinner" aria-hidden="true"></div>
+    <div class="loading-logo" aria-hidden="true">
+      <div class="spinner"></div>
+      <img src="logo.svg" alt="">
+    </div>
+    <strong class="loading-nome">Sistema de Apoio a Reuniões</strong>
     <p>Aguarde...</p>
   </div>
 
