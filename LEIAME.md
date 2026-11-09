@@ -48,7 +48,7 @@ flowchart TD
 - Nova pauta e "Sugerir pautas com IA" valem para o GT aberto. O sino de citações reúne todos os GTs, e ao abrir uma citação o sistema vai para o GT dela.
 
 **Sugestões e comentários:** na aba **Sugestões**, o colaborador registra sugestões para a pauta. Cada sugestão tem os **próprios comentários** logo abaixo, com uma caixa "Comentar" em cada uma. Na planilha, o comentário guarda na coluna `ID_Pai` o ID da sugestão a que pertence. Comentários antigos, de antes dessa mudança, aparecem em "Comentários gerais anteriores".
-O **administrador** vê uma lixeira em cada sugestão e em cada comentário. Ao excluir uma sugestão, os comentários dela e as citações ligadas a eles também são apagados da planilha. O sistema pede confirmação antes, e a exclusão não pode ser desfeita.
+Só o usuário **@marco.nunes** vê a lixeira em cada sugestão e em cada comentário (a lista fica em `EXCLUEM_INTERACOES`, no Code.gs). **Toda exclusão pede a senha de quem está logado**, inclusive a de metadados. Senhas erradas contam para o mesmo bloqueio de 10 minutos do login. Ao excluir uma sugestão, os comentários dela e as citações e curtidas ligadas a eles também são apagados da planilha. O sistema pede confirmação antes, e a exclusão não pode ser desfeita.
 
 **Como mudar o status** (só para Colaborador e Administrador):
 - **Pauta:** abra a pauta e use a caixa de seleção no canto superior direito do detalhe, ao lado de "Editar". A mudança é salva na hora.
@@ -58,6 +58,10 @@ O **administrador** vê uma lixeira em cada sugestão e em cada comentário. Ao 
 **Ciclo da pauta:** `Em Debate` → `Em Redação` (o texto oficial está sendo escrito no Google Docs) → `Aprovada` ou `Arquivada`.
 
 **Ciclo do encaminhamento:** `Pendente` → `Em Andamento` → `Concluído` ou `Cancelado`. Um encaminhamento em aberto com prazo vencido aparece como **atrasado** em vermelho.
+
+**Curtidas e comentários nas sugestões:** qualquer usuário com login próprio, **inclusive o perfil Leitura**, pode curtir e comentar as sugestões. Cada usuário curte uma sugestão uma vez só (clicar de novo desfaz), e passar o mouse sobre o botão mostra quem curtiu. Comentários não têm limite. Criar sugestões continua restrito a Colaborador e Administrador. O observador sem cadastro só vê o número de curtidas. As curtidas ficam na aba `Curtidas_GT`, criada sozinha na primeira curtida.
+
+**Metadados para a IA:** o **administrador** cadastra, no botão **Metadados IA** do topo (todos os GTs) ou no mesmo botão dentro de um GT (já vinculado a ele), orientações que a IA deve seguir ao analisar a discussão de uma pauta (✦ Sugerir com IA, na aba Encaminhamentos). Cada metadado vale para **todos os GTs** ou para um GT só. Os ativos seguem junto com a pauta e os comentários, e a síntese mostra quantos foram seguidos. Eles ficam na aba `Recomendacoes_IA` da planilha, criada sozinha no primeiro cadastro.
 
 **Usuários e login:**
 - No primeiro acesso, entre com o usuário **`admin`** e a senha `SENHA_ADMIN`. Vá em **Usuários** e cadastre as pessoas com nome, @apelido (gerado do nome, ex.: `marco.nunes`), e-mail opcional, **perfil** e **senha inicial** (mínimo de 6 caracteres).

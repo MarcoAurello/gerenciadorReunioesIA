@@ -17,7 +17,7 @@ const estado = {
   detalhes: {},          // conteúdo de cada pauta já aberta: { ideia, interacoes, encaminhamentos }
   ultimaResposta: null,  // último resumo recebido (guardado para abrir rápido ao recarregar)
   grupo: null,           // ID do GT aberto; null = tela com a lista de GTs
-  dados: { ideias: [], interacoes: [], encaminhamentos: [], usuarios: [], citacoes: [] },
+  dados: { ideias: [], interacoes: [], encaminhamentos: [], usuarios: [], citacoes: [], recomendacoes: [] },
   listas: {
     STATUS_IDEIA: ["Em Debate", "Em Redação", "Aprovada", "Arquivada"],
     TIPOS_INTERACAO: ["Comentário", "Sugestão"],
@@ -29,7 +29,8 @@ const estado = {
   filtroTipo: "",
   filtroCitacoes: "Pendente",
   citacaoOrigem: null,   // citação que deu origem ao encaminhamento em edição
-  iaEncaminhamentos: {}  // sugestões da IA por pauta, mantidas entre recargas
+  iaEncaminhamentos: {}, // sugestões da IA por pauta, mantidas entre recargas
+  sugestoesAbertas: new Set() // sugestões expandidas no acordeom (sobrevive ao redesenho)
 };
 
 const $ = (sel, raiz = document) => raiz.querySelector(sel);
@@ -61,18 +62,73 @@ try { estado.grupo = sessionStorage.getItem(CHAVE_GRUPO) || null; } catch (e) {}
 let cargas = 0;
 let timerLoading = null;
 
-function mostrarLoading() {
+// Primeira mensagem do loading: o que está acontecendo de fato
+const LOADING_ACAO = {
+  LOGIN: "Conferindo usuário e senha...",
+  LISTAR: "Buscando as pautas na planilha...",
+  CRIAR_IDEIA: "Salvando a pauta...",
+  EDITAR_IDEIA: "Salvando as alterações da pauta...",
+  ADD_INTERACAO: "Registrando na planilha...",
+  ADD_ENCAMINHAMENTO: "Registrando o encaminhamento...",
+  ATUALIZAR_ENCAMINHAMENTO: "Atualizando o encaminhamento...",
+  ATUALIZAR_CITACAO: "Atualizando a citação...",
+  CRIAR_USUARIO: "Cadastrando o usuário...",
+  EDITAR_USUARIO: "Atualizando o usuário...",
+  ALTERAR_SENHA: "Alterando a sua senha...",
+  EXCLUIR_INTERACAO: "Conferindo a senha e excluindo...",
+  EXCLUIR_RECOMENDACAO: "Conferindo a senha e excluindo...",
+  CRIAR_GRUPO: "Criando o grupo de trabalho...",
+  EDITAR_GRUPO: "Atualizando o grupo de trabalho...",
+  CRIAR_RECOMENDACAO: "Salvando o metadado...",
+  EDITAR_RECOMENDACAO: "Salvando o metadado...",
+  IA_SUGERIR_PAUTAS: "Enviando as pautas do GT para a IA...",
+  IA_SUGERIR_ENCAMINHAMENTOS: "Enviando a pauta e os comentários para a IA..."
+};
+// Mensagens que vão se revezando enquanto a resposta não chega
+const LOADING_SEGUINTES = {
+  IA: ["A IA está lendo a discussão...", "Analisando sugestões e comentários...", "Montando a síntese...", "Escrevendo as sugestões...", "A IA às vezes leva até um minuto. Só mais um momento..."],
+  PADRAO: ["Falando com a planilha do Google...", "Estamos trabalhando nisso...", "Quase lá...", "Só mais um momento...", "A planilha está demorando um pouco mais que o normal, mas segue trabalhando..."]
+};
+const LOADING_INTERVALO = 3500;
+let loadingRelogio = null;
+
+function trocarMensagemLoading(texto) {
+  const el = $("#loadingMsg");
+  el.textContent = texto;
+  el.style.animation = "none";
+  void el.offsetWidth; // reinicia a animação de entrada
+  el.style.animation = "";
+}
+
+function iniciarMensagensLoading(acao) {
+  clearInterval(loadingRelogio);
+  const seguintes = /^IA_/.test(acao) ? LOADING_SEGUINTES.IA : LOADING_SEGUINTES.PADRAO;
+  const inicio = Date.now();
+  let passo = -1;
+  trocarMensagemLoading(LOADING_ACAO[acao] || "Aguarde...");
+  $("#loadingTempo").textContent = "";
+  loadingRelogio = setInterval(() => {
+    const seg = Math.round((Date.now() - inicio) / 1000);
+    // A última mensagem fica fixa; antes dela, uma nova a cada LOADING_INTERVALO
+    const novoPasso = Math.min(Math.floor((Date.now() - inicio) / LOADING_INTERVALO) - 1, seguintes.length - 1);
+    if (novoPasso > passo) { passo = novoPasso; trocarMensagemLoading(seguintes[passo]); }
+    $("#loadingTempo").textContent = seg >= 5 ? `${seg} s` : "";
+  }, 500);
+}
+
+function mostrarLoading(acao = "") {
   cargas++;
   clearTimeout(timerLoading);
   const el = $("#loading");
   // Dentro de um <dialog> aberto o loading precisa estar no mesmo "top layer"
   (document.querySelector("dialog[open]") || document.body).appendChild(el);
+  if (el.hidden || acao) iniciarMensagensLoading(acao);
   el.hidden = false;
 }
 
 function esconderLoading() {
   cargas = Math.max(0, cargas - 1);
-  if (cargas === 0) timerLoading = setTimeout(() => { $("#loading").hidden = true; }, 120);
+  if (cargas === 0) timerLoading = setTimeout(() => { $("#loading").hidden = true; clearInterval(loadingRelogio); }, 120);
 }
 
 let sincronizando = 0;
@@ -85,7 +141,7 @@ function marcarSincronizando(delta) {
 /** silencioso: não cobre a tela com o "Aguarde..." (só um indicador discreto no topo). */
 async function api(acao, dados = {}, { silencioso = false } = {}) {
   const req = { ...dados, acao, token: estado.token };
-  if (silencioso) marcarSincronizando(1); else mostrarLoading();
+  if (silencioso) marcarSincronizando(1); else mostrarLoading(acao);
   try {
     if (MODO_DEMO) return await demoApi(req);
     // text/plain evita o preflight CORS, que o Apps Script não atende
@@ -286,7 +342,7 @@ function aplicarResposta(r) {
   if (r.dados) {
     estado.nivel = r.nivelAcesso;
     estado.usuario = r.usuario || null;
-    estado.dados = { ideias: [], usuarios: [], citacoes: [], ...r.dados };
+    estado.dados = { ideias: [], usuarios: [], citacoes: [], recomendacoes: [], ...r.dados };
     // Code.gs sem GTs: todas as pautas ficam no GT-Sistemas
     if (!Array.isArray(r.dados.grupos) || !r.dados.grupos.length) estado.dados.grupos = [{ ...GRUPO_PADRAO }];
     if (r.listas) estado.listas = { ...estado.listas, ...r.listas };
@@ -315,6 +371,31 @@ function montarDetalhesLegados(d) {
 
 const ehAdmin = () => estado.nivel === "ADMIN";
 const podeEscrever = () => estado.nivel === "ESCRITA" || ehAdmin();
+// Curtir e comentar sugestões: qualquer usuário com login próprio (inclusive Leitura)
+const podeInteragir = () => !!(estado.usuario && estado.usuario.apelido);
+// Quem pode excluir sugestões e comentários é decidido no servidor (Code.gs)
+const podeExcluirInteracoes = () => !!(estado.usuario && estado.usuario.podeExcluirInteracoes);
+
+/** Pede a senha de quem está logado antes de excluir. Devolve a senha, ou null se cancelar. */
+function pedirSenhaExclusao(mensagem) {
+  const modal = $("#modalExcluir");
+  $("#excluirMsg").textContent = mensagem;
+  $("#formExcluir").reset();
+  modal.showModal();
+  $("#excluirSenha").focus();
+  return new Promise(resolve => {
+    const fim = valor => {
+      $("#formExcluir").onsubmit = null;
+      $("#btnCancelarExcluir").onclick = null;
+      modal.onclose = null;
+      if (modal.open) modal.close();
+      resolve(valor);
+    };
+    $("#formExcluir").onsubmit = ev => { ev.preventDefault(); fim($("#excluirSenha").value); };
+    $("#btnCancelarExcluir").onclick = () => fim(null);
+    modal.onclose = () => fim(null); // Esc
+  });
+}
 
 const ROTULO_NIVEL = {
   ADMIN: ["Administrador", "selo-admin"],
@@ -554,6 +635,7 @@ function renderizarTopo() {
 
   if ($("#modalCitacoes").open) renderizarCitacoes();
   if ($("#modalUsuarios").open) renderizarUsuarios();
+  if ($("#modalRecomendacoes").open) renderizarRecomendacoes();
 }
 
 function renderizarKpis() {
@@ -642,7 +724,7 @@ function renderizarDetalhe() {
     <div class="painel">
       ${estado.aba === "texto" ? painelTexto(ideia) : !carregado
         ? `<div class="carregando-painel"><span class="mini-spinner" aria-hidden="true"></span>Aguarde...</div>`
-        : estado.aba === "encaminhamentos" ? painelEncaminhamentos(ideia, encs) : painelDiscussao(ideia, interacoes)}
+        : estado.aba === "encaminhamentos" ? painelEncaminhamentos(ideia, encs) : painelDiscussao(ideia, interacoes, carregado.curtidas || [])}
     </div>`;
 }
 
@@ -650,12 +732,16 @@ function aba(id, rotulo, contador) {
   return `<button class="aba ${estado.aba === id ? "ativa" : ""}" data-aba="${id}" role="tab">${rotulo}${contador !== "" ? `<span class="contador">${contador}</span>` : ""}</button>`;
 }
 
-function cabecalhoInteracao(i) {
-  const excluir = ehAdmin() && i.ID_Interacao
-    ? `<button class="btn-excluir" data-excluir="${esc(i.ID_Interacao)}" title="Excluir ${i.Tipo === "Sugestão" ? "sugestão" : "comentário"}" aria-label="Excluir">
+function botaoExcluir(i) {
+  return podeExcluirInteracoes() && i.ID_Interacao
+    ? `<button type="button" class="btn-excluir" data-excluir="${esc(i.ID_Interacao)}" title="Excluir ${i.Tipo === "Sugestão" ? "sugestão" : "comentário"}" aria-label="Excluir">
          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
        </button>`
     : "";
+}
+
+function cabecalhoInteracao(i) {
+  const excluir = botaoExcluir(i);
   return `
       <div class="interacao-cab">
         <strong>${esc(i.Autor)}</strong>
@@ -669,7 +755,18 @@ const dicaMencao = () => estado.dados.usuarios.length
   ? "Digite <strong>@</strong> para citar um usuário. Ele será avisado para dar encaminhamento."
   : "Peça ao administrador para cadastrar usuários e poder citá-los com @.";
 
-function painelDiscussao(ideia, interacoes) {
+function botaoCurtir(sugestao, curtidas) {
+  const daSugestao = curtidas.filter(c => String(c.ID_Interacao) === String(sugestao.ID_Interacao));
+  const eu = String(estado.usuario?.apelido || "").toLowerCase();
+  const curti = !!eu && daSugestao.some(c => String(c.Apelido).toLowerCase() === eu);
+  const quem = daSugestao.map(c => c.Nome || "@" + c.Apelido).join(", ");
+  const dica = quem ? `Curtido por ${quem}` : "Ninguém curtiu ainda";
+  const icone = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 11v9H4v-9h3zm3 9h7.2a2 2 0 0 0 2-1.6l1.2-6A2 2 0 0 0 18.4 10H14l.7-3.6A1.8 1.8 0 0 0 13 4.3L10 11v9z" fill="${curti ? "currentColor" : "none"}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>`;
+  if (!podeInteragir()) return `<span class="btn-curtir" title="${esc(dica)}">${icone}${daSugestao.length}</span>`;
+  return `<button type="button" class="btn-curtir ${curti ? "curtido" : ""}" data-curtir="${esc(sugestao.ID_Interacao)}" aria-pressed="${curti}" title="${esc(dica)}">${icone}${curti ? "Curtido" : "Curtir"}${daSugestao.length ? ` · ${daSugestao.length}` : ""}</button>`;
+}
+
+function painelDiscussao(ideia, interacoes, curtidas = []) {
   const porData = (a, b) => String(a.Data).localeCompare(String(b.Data));
   const ids = new Set(interacoes.map(i => String(i.ID_Interacao)));
   const sugestoes = interacoes.filter(i => i.Tipo === "Sugestão" && !i.ID_Pai).sort(porData);
@@ -679,14 +776,30 @@ function painelDiscussao(ideia, interacoes) {
 
   const cards = sugestoes.map(s => {
     const comentarios = comentariosDe(s.ID_Interacao);
-    const responder = podeEscrever() ? `
+    const responder = podeInteragir() ? `
       <form class="form-comentario" data-pai="${esc(s.ID_Interacao)}">
-        <textarea class="campo-mencao" rows="1" placeholder="Comentar esta sugestão... (@ para citar)" maxlength="5000" required></textarea>
+        <textarea class="campo-mencao" rows="1" placeholder="Comentar esta sugestão..." maxlength="5000" required></textarea>
         <button class="btn btn-secundario btn-pequeno" type="submit">Comentar</button>
       </form>` : "";
+    const nCurtidas = curtidas.filter(c => String(c.ID_Interacao) === String(s.ID_Interacao)).length;
+    const aberta = estado.sugestoesAbertas.has(String(s.ID_Interacao));
+    // Fechada: autor, começo do texto e contadores. Aberta: texto inteiro, curtir e comentários.
     return `
-      <div class="interacao sugestao ${citaEu(s.Texto) ? "cita-voce" : ""}" id="int-${esc(s.ID_Interacao)}">
-        ${cabecalhoInteracao(s)}
+      <details class="interacao sugestao acordeom ${citaEu(s.Texto) ? "cita-voce" : ""}" id="int-${esc(s.ID_Interacao)}" data-sugestao="${esc(s.ID_Interacao)}" ${aberta ? "open" : ""}>
+        <summary>
+          <div class="interacao-cab">
+            <strong>${esc(s.Autor)}</strong>
+            <span>${fmtData(s.Data, true)}</span>
+            <span class="contadores">
+              <span title="Curtidas"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 11v9H4v-9h3zm3 9h7.2a2 2 0 0 0 2-1.6l1.2-6A2 2 0 0 0 18.4 10H14l.7-3.6A1.8 1.8 0 0 0 13 4.3L10 11v9z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>${nCurtidas}<span class="sr-only"> curtida(s)</span></span>
+              <span title="Comentários"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4V5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>${comentarios.length}<span class="sr-only"> comentário(s)</span></span>
+            </span>
+            <svg class="seta" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <p class="previa">${formatarTexto(s.Texto)}</p>
+        </summary>
+        <p class="texto-completo">${formatarTexto(s.Texto)}</p>
+        <div class="reacoes">${botaoCurtir(s, curtidas)}${botaoExcluir(s)}</div>
         <div class="comentarios">
           <div class="comentarios-titulo">${comentarios.length ? `${comentarios.length} comentário${comentarios.length > 1 ? "s" : ""}` : "Nenhum comentário ainda"}</div>
           ${comentarios.map(c => `
@@ -695,7 +808,7 @@ function painelDiscussao(ideia, interacoes) {
             </div>`).join("")}
           ${responder}
         </div>
-      </div>`;
+      </details>`;
   }).join("");
 
   const lista = sugestoes.length ? cards : `<p class="texto-vazio">Nenhuma sugestão ainda.${podeEscrever() ? " Registre a primeira abaixo." : ""}</p>`;
@@ -774,7 +887,7 @@ function blocoIaEncaminhamentos(ideia) {
   if (!sug) return cab;
 
   return cab + `<div class="ia-resultado" style="margin:0 0 16px">
-    ${sug.sintese ? `<div class="ia-bloco ia-sintese"><h4>Síntese da discussão</h4><p>${esc(sug.sintese)}</p></div>` : ""}
+    ${sug.sintese ? `<div class="ia-bloco ia-sintese"><h4>Síntese da discussão</h4><p>${esc(sug.sintese)}</p>${sug.recomendacoes ? `<small class="ia-regras">Seguindo ${sug.recomendacoes} metadado(s) da coordenação.</small>` : ""}</div>` : ""}
     ${sug.encaminhamentos.map((e, idx) => `
       <div class="ia-bloco ${e.adotado ? "adotado" : ""}">
         <p>${esc(e.acao)}</p>
@@ -892,6 +1005,7 @@ async function gerarSugestoesEncaminhamentos() {
   if (r.status !== "success") return aviso(r.message, true);
   estado.iaEncaminhamentos[id] = {
     sintese: r.sintese,
+    recomendacoes: Number(r.recomendacoesAplicadas) || 0,
     encaminhamentos: (r.encaminhamentos || []).map(e => ({
       acao: e.acao,
       responsavel: e.responsavel || "",
@@ -915,6 +1029,38 @@ async function adotarEncaminhamento(idx) {
 /* Exclusão (somente administrador)                            */
 /* ---------------------------------------------------------- */
 
+/**
+ * Curte ou descurte na hora (sem cobrir a tela) e confirma com o servidor;
+ * se o servidor recusar, a tela volta ao que era.
+ */
+const curtindo = new Set();
+
+async function curtirSugestao(idInteracao) {
+  const idIdeia = estado.selecionada;
+  const det = detalheDe(idIdeia);
+  if (!det || !podeInteragir() || curtindo.has(idInteracao)) return;
+  curtindo.add(idInteracao);
+  try { await enviarCurtida(det, idIdeia, idInteracao); } finally { curtindo.delete(idInteracao); }
+}
+
+async function enviarCurtida(det, idIdeia, idInteracao) {
+  const eu = String(estado.usuario.apelido).toLowerCase();
+  const antes = det.curtidas || [];
+  const minha = c => String(c.ID_Interacao) === String(idInteracao) && String(c.Apelido).toLowerCase() === eu;
+  det.curtidas = antes.some(minha) ? antes.filter(c => !minha(c)) : [...antes, { ID_Interacao: idInteracao, Apelido: eu, Nome: estado.usuario.nome }];
+  renderizarDetalhe();
+
+  const r = await api("CURTIR", { idIdeia, idInteracao }, { silencioso: true });
+  if (sessaoExpirou(r)) return;
+  if (r.status !== "success") {
+    det.curtidas = antes;
+    renderizarDetalhe();
+    return aviso(r.message || "Não foi possível registrar a curtida.", true);
+  }
+  aplicarResposta(r);
+  renderizarTudo();
+}
+
 async function excluirInteracao(id) {
   const det = detalheDe(estado.selecionada);
   const interacoes = det ? det.interacoes : [];
@@ -928,8 +1074,9 @@ async function excluirInteracao(id) {
   } else {
     msg = `Excluir este comentário de ${item.Autor}?\n\n"${resumo}"\n\nEsta ação não pode ser desfeita.`;
   }
-  if (!confirm(msg)) return;
-  await gravar("EXCLUIR_INTERACAO", { idInteracao: id, idIdeia: estado.selecionada });
+  const senha = await pedirSenhaExclusao(msg);
+  if (senha === null) return;
+  await gravar("EXCLUIR_INTERACAO", { idInteracao: id, idIdeia: estado.selecionada, senha });
 }
 
 /* ---------------------------------------------------------- */
@@ -990,6 +1137,9 @@ async function irParaCitacao(idCitacao, aba) {
   const pendente = selecionarPauta(c.ID_Ideia);
   if (!detalheDe(c.ID_Ideia)) await pendente;
   const alvo = aba === "encaminhamentos" ? $("#eAcao") : document.getElementById("int-" + c.ID_Interacao);
+  // A citação pode estar dentro de uma sugestão fechada no acordeom: abre antes de rolar
+  const sugestao = alvo && alvo.closest("details[data-sugestao]");
+  if (sugestao) sugestao.open = true;
   if (alvo) {
     alvo.scrollIntoView({ behavior: "smooth", block: "center" });
     if (alvo.tagName === "TEXTAREA") alvo.focus();
@@ -1046,6 +1196,85 @@ async function salvarUsuario(ev) {
     apelidoEditado = false;
     renderizarUsuarios();
   }
+}
+
+/* ---------------------------------------------------------- */
+/* Recomendações para a IA (somente administrador)             */
+/* ---------------------------------------------------------- */
+
+const nomeDoGrupo = id => !id ? "Todos os GTs"
+  : ((estado.dados.grupos || []).find(g => String(g.ID_Grupo) === String(id)) || {}).Nome || id;
+
+function opcoesGrupoRecomendacao(selecionado = "") {
+  return [`<option value="">Todos os GTs</option>`, ...(estado.dados.grupos || []).map(g =>
+    `<option value="${esc(g.ID_Grupo)}" ${String(g.ID_Grupo) === String(selecionado) ? "selected" : ""}>${esc(g.Nome)}${grupoAtivo(g) ? "" : " (desativado)"}</option>`)].join("");
+}
+
+// null = tela geral (todos os GTs); com um ID, a tela vale só para aquele GT
+let recGrupoFixo = null;
+
+function limparFormRecomendacao() {
+  $("#formRecomendacao").reset();
+  $("#rId").value = "";
+  $("#rGrupo").innerHTML = opcoesGrupoRecomendacao(recGrupoFixo || "");
+  $("#btnSalvarRecomendacao").textContent = "Cadastrar metadado";
+  $("#btnCancelarEdicaoRec").hidden = true;
+}
+
+/** Abre o cadastro geral ou, com idGrupo, o cadastro já vinculado àquele GT. */
+function abrirRecomendacoes(idGrupo = null) {
+  recGrupoFixo = idGrupo ? String(idGrupo) : null;
+  $("#recTitulo").textContent = recGrupoFixo ? `Metadados para a IA · ${nomeDoGrupo(recGrupoFixo)}` : "Metadados para a IA";
+  $("#rGrupo").hidden = !!recGrupoFixo;
+  $("#formRecomendacao .linha").style.gridTemplateColumns = recGrupoFixo ? "1fr" : "";
+  limparFormRecomendacao();
+  renderizarRecomendacoes();
+  $("#modalRecomendacoes").showModal();
+  $("#rTitulo").focus();
+}
+
+function renderizarRecomendacoes() {
+  const todas = estado.dados.recomendacoes || [];
+  const gerais = todas.filter(r => !r.ID_Grupo && grupoAtivo(r)).length;
+  $("#recNotaGerais").hidden = !recGrupoFixo;
+  $("#recNotaGerais").innerHTML = recGrupoFixo
+    ? `Aqui ficam só os metadados deste GT. ${gerais ? `Também ${gerais === 1 ? "vale 1 metadado" : `valem ${gerais} metadados`} de <strong>todos os GTs</strong>, que ficam no botão Metadados IA do topo.` : ""}`
+    : "";
+  const lista = todas.filter(r => !recGrupoFixo || String(r.ID_Grupo || "") === recGrupoFixo).sort((a, b) =>
+    nomeDoGrupo(a.ID_Grupo).localeCompare(nomeDoGrupo(b.ID_Grupo), "pt-BR") || String(a.Titulo).localeCompare(String(b.Titulo), "pt-BR"));
+  $("#listaRecomendacoes").innerHTML = lista.length ? lista.map(r => {
+    const ativa = grupoAtivo(r);
+    return `
+    <div class="usuario-linha recomendacao ${ativa ? "" : "inativo"}" data-rec="${esc(r.ID_Recomendacao)}">
+      <div class="info">
+        <strong>${esc(r.Titulo)}</strong> <span class="selo-gt">${esc(nomeDoGrupo(r.ID_Grupo))}</span>${ativa ? "" : " <small style=\"display:inline\">· desativado</small>"}
+        <small>${esc(r.Texto)}</small>
+      </div>
+      <button class="btn btn-secundario btn-pequeno" data-rec-editar>Editar</button>
+      <button class="btn btn-secundario btn-pequeno" data-rec-toggle data-ativo="${ativa ? "1" : "0"}">${ativa ? "Desativar" : "Reativar"}</button>
+      <button class="btn btn-fantasma btn-pequeno" data-rec-excluir>Excluir</button>
+    </div>`;
+  }).join("") : `<p class="texto-vazio">${recGrupoFixo ? "Nenhum metadado cadastrado para este GT." : "Nenhum metadado cadastrado. A IA usa só a pauta e a discussão."}</p>`;
+}
+
+async function salvarRecomendacao(ev) {
+  ev.preventDefault();
+  const id = $("#rId").value;
+  const campos = { titulo: $("#rTitulo").value, texto: $("#rTexto").value, idGrupo: recGrupoFixo || $("#rGrupo").value };
+  const r = await gravar(id ? "EDITAR_RECOMENDACAO" : "CRIAR_RECOMENDACAO", id ? { idRecomendacao: id, ...campos } : campos);
+  if (r) { limparFormRecomendacao(); renderizarRecomendacoes(); }
+}
+
+function editarRecomendacao(id) {
+  const r = (estado.dados.recomendacoes || []).find(x => x.ID_Recomendacao === id);
+  if (!r) return;
+  $("#rId").value = id;
+  $("#rTitulo").value = r.Titulo || "";
+  $("#rTexto").value = r.Texto || "";
+  $("#rGrupo").innerHTML = opcoesGrupoRecomendacao(r.ID_Grupo || "");
+  $("#btnSalvarRecomendacao").textContent = "Salvar alterações";
+  $("#btnCancelarEdicaoRec").hidden = false;
+  $("#rTitulo").focus();
 }
 
 /* ---------------------------------------------------------- */
@@ -1138,6 +1367,28 @@ $("#listaCitacoes").addEventListener("click", async ev => {
 
 $("#btnUsuarios").addEventListener("click", () => { renderizarUsuarios(); $("#modalUsuarios").showModal(); $("#uNome").focus(); });
 $("#btnFecharUsuarios").addEventListener("click", () => $("#modalUsuarios").close());
+$("#btnRecomendacoes").addEventListener("click", () => abrirRecomendacoes());
+$("#btnRecomendacoesGrupo").addEventListener("click", () => abrirRecomendacoes(estado.grupo));
+$("#btnFecharRecomendacoes").addEventListener("click", () => $("#modalRecomendacoes").close());
+$("#formRecomendacao").addEventListener("submit", salvarRecomendacao);
+$("#btnCancelarEdicaoRec").addEventListener("click", limparFormRecomendacao);
+$("#listaRecomendacoes").addEventListener("click", ev => {
+  const linha = ev.target.closest("[data-rec]");
+  if (!linha) return;
+  const idRecomendacao = linha.dataset.rec;
+  if (ev.target.closest("[data-rec-editar]")) return editarRecomendacao(idRecomendacao);
+  const toggle = ev.target.closest("[data-rec-toggle]");
+  if (toggle) return gravar("EDITAR_RECOMENDACAO", { idRecomendacao, ativo: toggle.dataset.ativo !== "1" });
+  if (ev.target.closest("[data-rec-excluir]")) {
+    const rec = (estado.dados.recomendacoes || []).find(x => x.ID_Recomendacao === idRecomendacao) || {};
+    return (async () => {
+      const senha = await pedirSenhaExclusao(`Excluir o metadado "${rec.Titulo || ""}"?\n\nEsta ação não pode ser desfeita.`);
+      if (senha === null) return;
+      const r = await gravar("EXCLUIR_RECOMENDACAO", { idRecomendacao, senha });
+      if (r && $("#rId").value === idRecomendacao) limparFormRecomendacao();
+    })();
+  }
+});
 $("#formUsuario").addEventListener("submit", salvarUsuario);
 $("#uNome").addEventListener("input", ev => { if (!apelidoEditado) $("#uApelido").value = gerarApelido(ev.target.value); });
 $("#uApelido").addEventListener("input", ev => { apelidoEditado = ev.target.value !== ""; });
@@ -1249,12 +1500,22 @@ detalhe.addEventListener("click", ev => {
   }
   if (ev.target.closest("#btnIaEnc")) return gerarSugestoesEncaminhamentos();
 
+  const curtirBtn = ev.target.closest("[data-curtir]");
+  if (curtirBtn) return curtirSugestao(curtirBtn.dataset.curtir);
+
   const excluir = ev.target.closest("[data-excluir]");
   if (excluir) return excluirInteracao(excluir.dataset.excluir);
 
   const adotar = ev.target.closest("[data-ia-adotar]");
   if (adotar) return adotarEncaminhamento(Number(adotar.dataset.iaAdotar));
 });
+
+// "toggle" não borbulha: escuta na captura para lembrar quais sugestões estão abertas
+detalhe.addEventListener("toggle", ev => {
+  const id = ev.target.dataset && ev.target.dataset.sugestao;
+  if (!id) return;
+  if (ev.target.open) estado.sugestoesAbertas.add(id); else estado.sugestoesAbertas.delete(id);
+}, true);
 
 detalhe.addEventListener("change", ev => {
   if (ev.target.id === "statusPauta") {
@@ -1325,6 +1586,9 @@ const demoBanco = {
     { ID_Grupo: "GT-SISTEMAS", Nome: "GT-Sistemas", Descricao: "Sistemas, infraestrutura e governança de TI", Ativo: "Sim" },
     { ID_Grupo: "GT-COMPRAS", Nome: "GT-Compras", Descricao: "Planejamento de compras e contratos", Ativo: "Sim" }
   ],
+  recomendacoes: [
+    { ID_Recomendacao: "REC-1", ID_Grupo: "", Titulo: "Conformidade com a LGPD", Texto: "Aponte riscos de tratamento de dados pessoais e sugira consulta ao DPO quando houver.", Ativo: "Sim" }
+  ],
   interacoes: [
     { ID_Interacao: "INT-2", ID_Ideia: "IDEIA-1", ID_Pai: "", Tipo: "Sugestão", Autor: "Bruno", Texto: "Criar uma lista de ferramentas homologadas.", Data: "2026-10-21T10:00:00.000Z" },
     { ID_Interacao: "INT-1", ID_Ideia: "IDEIA-1", ID_Pai: "INT-2", Tipo: "Comentário", Autor: "Carla", Texto: "Precisamos alinhar com a LGPD antes de liberar.", Data: "2026-10-22T14:00:00.000Z" },
@@ -1340,7 +1604,10 @@ const demoBanco = {
     { ID_Usuario: "USR-2", Nome: "Ana Souza", Apelido: "ana.souza", Email: "", Perfil: "Colaborador", Ativo: "Sim", senha: "123456" },
     { ID_Usuario: "USR-3", Nome: "Bruno Lima", Apelido: "bruno.lima", Email: "", Perfil: "Leitura", Ativo: "Sim", senha: "123456" }
   ],
-  citacoes: []
+  citacoes: [],
+  curtidas: [
+    { ID_Curtida: "CUR-1", ID_Ideia: "IDEIA-1", ID_Interacao: "INT-2", Apelido: "ana.souza", Nome: "Ana Souza" }
+  ]
 };
 demoBanco.interacoes.push({ ID_Interacao: "INT-3", ID_Ideia: "IDEIA-2", ID_Pai: "", Tipo: "Sugestão", Autor: "Ana Souza", Texto: "@marco.nunes você consegue levantar o orçamento disponível?", Data: "2026-11-01T12:00:00.000Z" });
 demoBanco.citacoes.push({ ID_Citacao: "CIT-1", ID_Ideia: "IDEIA-2", ID_Interacao: "INT-3", Apelido: "marco.nunes", Autor: "Ana Souza", Trecho: "@marco.nunes você consegue levantar o orçamento disponível?", Status: "Pendente", Data: "2026-11-01T12:00:00.000Z" });
@@ -1358,6 +1625,7 @@ const demoSessoes = (() => {
 })();
 
 const DEMO_NIVEL = { Administrador: "ADMIN", Colaborador: "ESCRITA", Leitura: "LEITURA" };
+const DEMO_EXCLUEM = ["marco.nunes"]; // espelha EXCLUEM_INTERACOES do Code.gs
 const DEMO_SO_LEITURA = new Set(["LOGIN", "LISTAR", "DETALHE_IDEIA", "SAIR", "ALTERAR_SENHA", "IA_SUGERIR_PAUTAS", "IA_SUGERIR_ENCAMINHAMENTOS"]);
 
 /** Simula o Code.gs: carga parcial (resumo + detalhe) e gravações que já devolvem os dados. */
@@ -1403,13 +1671,14 @@ function demoResumo(sessao) {
   const meu = sessao.apelido && sessao.apelido !== "admin" ? sessao.apelido : "";
   return {
     nivelAcesso: nivel,
-    usuario: { nome: sessao.nome, apelido: sessao.apelido, nivel },
+    usuario: { nome: sessao.nome, apelido: sessao.apelido, nivel, podeExcluirInteracoes: DEMO_EXCLUEM.includes(sessao.apelido) },
     hoje,
     dados: {
       ideias: ideias.map(i => ({ ...i, ID_Grupo: grupoDe(i) })),
       grupos: copia.grupos.filter(g => nivel === "ADMIN" || grupoAtivo(g)),
       usuarios,
-      citacoes: meu ? copia.citacoes.filter(c => c.Apelido === meu) : []
+      citacoes: meu ? copia.citacoes.filter(c => c.Apelido === meu) : [],
+      recomendacoes: nivel === "ADMIN" ? copia.recomendacoes : []
     },
     listas: { PERFIS: Object.keys(DEMO_NIVEL) }
   };
@@ -1423,6 +1692,7 @@ function demoDetalhe(id) {
     idIdeia: ideia.ID_Ideia,
     ideia,
     interacoes: copia.interacoes.filter(x => x.ID_Ideia === ideia.ID_Ideia),
+    curtidas: copia.curtidas.filter(x => x.ID_Ideia === ideia.ID_Ideia),
     encaminhamentos: copia.encaminhamentos.filter(x => x.ID_Ideia === ideia.ID_Ideia)
   };
 }
@@ -1469,7 +1739,16 @@ async function demoExecutar(req) {
     u.senha = req.novaSenha;
     return ok("Senha alterada!");
   }
-  if (nivel === "LEITURA") return { status: "error", message: "Seu perfil é somente leitura." };
+  if (/^EXCLUIR_/.test(req.acao)) {
+    if (!req.senha) return { status: "error", message: "Digite a sua senha para confirmar a exclusão." };
+    const u = demoBanco.usuarios.find(x => x.Apelido === sessao.apelido);
+    const senhaOk = sessao.apelido === "admin" ? req.senha === "demo-admin" : !!u && u.senha === req.senha;
+    if (!senhaOk) return { status: "error", message: "Senha incorreta. A exclusão não foi feita." };
+    if (req.acao === "EXCLUIR_INTERACAO" && !DEMO_EXCLUEM.includes(sessao.apelido)) return { status: "error", message: "Você não tem permissão para excluir sugestões e comentários." };
+  }
+  const interacaoAberta = req.acao === "CURTIR" || (req.acao === "ADD_INTERACAO" && req.idPai) || req.acao === "EXCLUIR_INTERACAO";
+  if (interacaoAberta && !sessao.apelido) return { status: "error", message: "Entre com o seu usuário para curtir ou comentar." };
+  if (nivel === "LEITURA" && !interacaoAberta) return { status: "error", message: "Seu perfil é somente leitura." };
   if (/^(CRIAR|EDITAR)_USUARIO$/.test(req.acao) && nivel !== "ADMIN") return { status: "error", message: "Apenas administradores gerenciam usuários." };
 
   switch (req.acao) {
@@ -1525,13 +1804,43 @@ async function demoExecutar(req) {
       if (req.ativo !== undefined) g.Ativo = req.ativo ? "Sim" : "Não";
       return ok(req.ativo === false ? "Grupo desativado." : req.ativo === true ? "Grupo reativado." : "Grupo atualizado!");
     }
+    case "CURTIR": {
+      const s = demoBanco.interacoes.find(i => i.ID_Interacao === req.idInteracao && i.ID_Ideia === req.idIdeia && i.Tipo === "Sugestão" && !i.ID_Pai);
+      if (!s) return { status: "error", message: "Sugestão não encontrada." };
+      const eu = sessao.apelido.toLowerCase();
+      const minha = c => c.ID_Interacao === s.ID_Interacao && c.Apelido === eu;
+      if (demoBanco.curtidas.some(minha)) {
+        demoBanco.curtidas = demoBanco.curtidas.filter(c => !minha(c));
+        return { ...ok("Curtida removida."), curtiu: false };
+      }
+      demoBanco.curtidas.push({ ID_Curtida: "CUR-" + Date.now(), ID_Ideia: req.idIdeia, ID_Interacao: s.ID_Interacao, Apelido: eu, Nome: sessao.nome });
+      return { ...ok("Sugestão curtida!"), curtiu: true };
+    }
+    case "CRIAR_RECOMENDACAO": case "EDITAR_RECOMENDACAO": case "EXCLUIR_RECOMENDACAO": {
+      if (nivel !== "ADMIN") return { status: "error", message: "Apenas administradores gerenciam os metadados da IA." };
+      const rec = demoBanco.recomendacoes.find(x => x.ID_Recomendacao === req.idRecomendacao);
+      if (req.acao !== "CRIAR_RECOMENDACAO" && !rec) return { status: "error", message: "Metadado não encontrado." };
+      if (req.acao === "EXCLUIR_RECOMENDACAO") {
+        demoBanco.recomendacoes = demoBanco.recomendacoes.filter(x => x !== rec);
+        return ok("Metadado excluído.");
+      }
+      if (req.ativo !== undefined) {
+        rec.Ativo = req.ativo ? "Sim" : "Não";
+        return ok(req.ativo ? "Metadado reativado." : "Metadado desativado.");
+      }
+      const titulo = String(req.titulo || "").trim(), texto = String(req.texto || "").trim();
+      if (!titulo || !texto) return { status: "error", message: "Informe o título e o texto do metadado." };
+      if (rec) { Object.assign(rec, { Titulo: titulo, Texto: texto, ID_Grupo: req.idGrupo || "" }); return ok("Metadado atualizado!"); }
+      demoBanco.recomendacoes.push({ ID_Recomendacao: "REC-" + Date.now(), ID_Grupo: req.idGrupo || "", Titulo: titulo, Texto: texto, Ativo: "Sim", Autor: req.autor });
+      return ok("Metadado cadastrado!");
+    }
     case "EXCLUIR_INTERACAO": {
-      if (nivel !== "ADMIN") return { status: "error", message: "Apenas administradores podem excluir sugestões e comentários." };
       const alvo = demoBanco.interacoes.find(i => i.ID_Interacao === req.idInteracao);
       if (!alvo) return { status: "error", message: "Registro não encontrado. Ele pode já ter sido excluído." };
       const ids = [alvo.ID_Interacao, ...(alvo.Tipo === "Sugestão" ? demoBanco.interacoes.filter(i => i.ID_Pai === alvo.ID_Interacao).map(i => i.ID_Interacao) : [])];
       demoBanco.interacoes = demoBanco.interacoes.filter(i => !ids.includes(i.ID_Interacao));
       demoBanco.citacoes = demoBanco.citacoes.filter(c => !ids.includes(c.ID_Interacao));
+      demoBanco.curtidas = demoBanco.curtidas.filter(c => !ids.includes(c.ID_Interacao));
       return ok(alvo.Tipo === "Sugestão" ? `Sugestão excluída${ids.length > 1 ? ` com ${ids.length - 1} comentário(s).` : "."}` : "Comentário excluído.");
     }
     case "CRIAR_USUARIO": {
@@ -1564,7 +1873,7 @@ async function demoExecutar(req) {
         { titulo: "Capacitação em segurança da informação", descricao: "Programa de treinamento anual para servidores sobre phishing e boas práticas.", justificativa: "Complementa a política de uso de IA." }
       ] };
     case "IA_SUGERIR_ENCAMINHAMENTOS":
-      return { status: "success", sintese: "O grupo concorda que é preciso alinhar o tema com a LGPD e sugere uma lista de ferramentas homologadas.", encaminhamentos: [
+      return { status: "success", recomendacoesAplicadas: demoBanco.recomendacoes.filter(x => grupoAtivo(x) && (!x.ID_Grupo || x.ID_Grupo === grupoDe(ideia() || {}))).length, sintese: "O grupo concorda que é preciso alinhar o tema com a LGPD e sugere uma lista de ferramentas homologadas.", encaminhamentos: [
         { acao: "Elaborar minuta da lista de ferramentas de IA homologadas", responsavel: "Bruno", prazoDias: 15 },
         { acao: "Redigir a primeira versão da política no Google Docs", responsavel: "", prazoDias: 30 }
       ] };

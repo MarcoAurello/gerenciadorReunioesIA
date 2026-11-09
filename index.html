@@ -56,6 +56,7 @@
           <span class="badge" id="badgeCitacoes" hidden>0</span>
         </button>
         <button class="btn btn-fantasma somente-admin" id="btnUsuarios">Usuários</button>
+        <button class="btn btn-fantasma somente-admin" id="btnRecomendacoes" title="Orientações que seguem junto com os comentários na análise da IA">Metadados IA</button>
         <button class="btn btn-fantasma" id="btnSenha" title="Alterar minha senha">Senha</button>
         <span id="seloPerfil" class="selo"></span>
         <button class="btn btn-fantasma" id="btnAtualizar" title="Recarregar dados">Atualizar</button>
@@ -84,7 +85,10 @@
           <h1 id="nomeGrupo"></h1>
           <p id="descGrupo"></p>
         </div>
-        <button class="btn btn-secundario somente-admin" id="btnEditarGrupo">Editar GT</button>
+        <div class="acoes-grupo">
+          <button class="btn btn-secundario somente-admin" id="btnRecomendacoesGrupo" title="Metadados da IA que valem para este GT">Metadados IA</button>
+          <button class="btn btn-secundario somente-admin" id="btnEditarGrupo">Editar GT</button>
+        </div>
       </div>
 
       <!-- Indicadores -->
@@ -214,6 +218,43 @@
     </div>
   </dialog>
 
+  <!-- ============ MODAL RECOMENDAÇÕES DA IA ============ -->
+  <dialog id="modalRecomendacoes" class="modal modal-largo">
+    <h2 id="recTitulo">Metadados para a IA</h2>
+    <p class="nota-ia">Quando alguém usa <strong>✦ Sugerir com IA</strong> nos encaminhamentos, os metadados ativos seguem junto com a pauta e os comentários. Valem os marcados para <strong>todos os GTs</strong> e os do GT da pauta.</p>
+    <p class="nota-ia" id="recNotaGerais" hidden></p>
+    <form id="formRecomendacao" class="form-inline" style="margin-top:0;padding-top:0;border-top:none" autocomplete="off">
+      <input type="hidden" id="rId">
+      <div class="linha">
+        <input type="text" id="rTitulo" placeholder="Título * (ex.: Conformidade com a LGPD)" maxlength="120" required>
+        <select id="rGrupo" aria-label="Vale para"></select>
+      </div>
+      <textarea id="rTexto" rows="3" maxlength="2000" placeholder="O que a IA deve seguir * (ex.: aponte riscos com dados pessoais e sugira consultar o DPO)" required></textarea>
+      <div class="rodape">
+        <button type="button" class="btn btn-fantasma" id="btnCancelarEdicaoRec" hidden>Cancelar edição</button>
+        <button class="btn btn-primario" type="submit" id="btnSalvarRecomendacao">Cadastrar metadado</button>
+      </div>
+    </form>
+    <div id="listaRecomendacoes" style="margin-top:16px"></div>
+    <div class="modal-acoes">
+      <button type="button" class="btn btn-fantasma" id="btnFecharRecomendacoes">Fechar</button>
+    </div>
+  </dialog>
+
+  <!-- ============ MODAL CONFIRMAR EXCLUSÃO (com senha) ============ -->
+  <dialog id="modalExcluir" class="modal">
+    <form id="formExcluir">
+      <h2>Confirmar exclusão</h2>
+      <p id="excluirMsg" class="excluir-msg"></p>
+      <label for="excluirSenha">Digite a sua senha para confirmar</label>
+      <input type="password" id="excluirSenha" autocomplete="current-password" required>
+      <div class="modal-acoes">
+        <button type="button" class="btn btn-fantasma" id="btnCancelarExcluir">Cancelar</button>
+        <button type="submit" class="btn btn-perigo">Excluir</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- ============ MODAL ALTERAR SENHA ============ -->
   <dialog id="modalSenha" class="modal">
     <form id="formSenha">
@@ -242,7 +283,8 @@
       <img src="logo.svg" alt="">
     </div>
     <strong class="loading-nome">Sistema de Apoio a Reuniões</strong>
-    <p>Aguarde...</p>
+    <p id="loadingMsg" class="loading-msg" aria-live="polite">Aguarde...</p>
+    <small id="loadingTempo" class="loading-tempo"></small>
   </div>
 
   <!-- ============ AVISOS ============ -->

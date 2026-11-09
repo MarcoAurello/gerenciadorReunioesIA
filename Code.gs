@@ -22,6 +22,11 @@ const SESSAO_SEGUNDOS = 6 * 60 * 60;
 const MAX_TENTATIVAS = 5;
 const BLOQUEIO_SEGUNDOS = 10 * 60;
 const PERFIS = { "Administrador": "ADMIN", "Colaborador": "ESCRITA", "Leitura": "LEITURA" };
+// Únicos usuários que podem excluir sugestões e comentários (sempre confirmando com a senha)
+const EXCLUEM_INTERACOES = ["marco.nunes"];
+const podeExcluirInteracoes = function (sessao) {
+  return EXCLUEM_INTERACOES.indexOf(String(sessao.apelido || "").toLowerCase()) >= 0;
+};
 
 const ABAS = {
   ideias: {
@@ -72,6 +77,17 @@ const ABAS = {
   grupos: {
     nome: "Grupos_GT",
     colunas: ["ID_Grupo", "Nome", "Descricao", "Ativo", "Data_Criacao"]
+  },
+  // Uma curtida por usuário em cada sugestão
+  curtidas: {
+    nome: "Curtidas_GT",
+    colunas: ["ID_Curtida", "ID_Ideia", "ID_Interacao", "Apelido", "Nome", "Data"]
+  },
+  // Orientações que seguem junto com a discussão quando a IA analisa uma pauta.
+  // ID_Grupo vazio = vale para todos os GTs.
+  recomendacoes: {
+    nome: "Recomendacoes_IA",
+    colunas: ["ID_Recomendacao", "ID_Grupo", "Titulo", "Texto", "Ativo", "Autor", "Data_Criacao", "Atualizado_Em"]
   }
 };
 
@@ -121,6 +137,27 @@ function doPost(e) {
     if (acao === "DETALHE_IDEIA") return detalheIdeia(req);
     if (acao === "ALTERAR_SENHA") return comLock(function () { return alterarSenha(req, sessao); });
 
+    // Toda exclusão exige a senha de quem está logado
+    if (/^EXCLUIR_/.test(acao)) {
+      const falhaSenha = confirmarSenha(sessao, req.senha);
+      if (falhaSenha) return erro(falhaSenha);
+    }
+    // Excluir sugestões e comentários: só os usuários de EXCLUEM_INTERACOES, qualquer que seja o perfil
+    if (acao === "EXCLUIR_INTERACAO") {
+      if (!podeExcluirInteracoes(sessao)) return erro("Você não tem permissão para excluir sugestões e comentários.");
+      return comDadosAtualizados(comLock(function () { return excluirInteracao(req); }), req, sessao);
+    }
+
+    // Curtir e comentar sugestões: qualquer usuário com login próprio, inclusive o perfil Leitura
+    if (acao === "CURTIR" || (acao === "ADD_INTERACAO" && req.idPai)) {
+      if (!sessao.apelido) return erro("Entre com o seu usuário para curtir ou comentar.");
+      req.autor = sessao.nome;
+      const fn = acao === "CURTIR"
+        ? function () { return curtir(req, sessao); }
+        : function () { return addInteracao(req); };
+      return comDadosAtualizados(comLock(fn), req, sessao);
+    }
+
     // Daqui para baixo, apenas colaborador ou administrador
     if (sessao.nivel === "LEITURA") return erro("Seu perfil é somente leitura.");
 
@@ -142,7 +179,10 @@ function doPost(e) {
       EDITAR_USUARIO: editarUsuario,
       EXCLUIR_INTERACAO: excluirInteracao,
       CRIAR_GRUPO: criarGrupo,
-      EDITAR_GRUPO: editarGrupo
+      EDITAR_GRUPO: editarGrupo,
+      CRIAR_RECOMENDACAO: criarRecomendacao,
+      EDITAR_RECOMENDACAO: editarRecomendacao,
+      EXCLUIR_RECOMENDACAO: excluirRecomendacao
     };
     const handler = handlers[acao];
     if (!handler) return erro("Ação desconhecida: " + acao);
@@ -152,8 +192,8 @@ function doPost(e) {
     if ((acao === "CRIAR_GRUPO" || acao === "EDITAR_GRUPO") && sessao.nivel !== "ADMIN") {
       return erro("Apenas administradores gerenciam os grupos de trabalho.");
     }
-    if (acao === "EXCLUIR_INTERACAO" && sessao.nivel !== "ADMIN") {
-      return erro("Apenas administradores podem excluir sugestões e comentários.");
+    if (/_RECOMENDACAO$/.test(acao) && sessao.nivel !== "ADMIN") {
+      return erro("Apenas administradores gerenciam os metadados da IA.");
     }
     const saida = comLock(function () { return handler(req, sessao); });
     return comDadosAtualizados(saida, req, sessao);
@@ -232,7 +272,7 @@ function montarResumo(sessao) {
 
   return {
     nivelAcesso: nivel,
-    usuario: { nome: sessao.nome, apelido: sessao.apelido, nivel: nivel },
+    usuario: { nome: sessao.nome, apelido: sessao.apelido, nivel: nivel, podeExcluirInteracoes: podeExcluirInteracoes(sessao) },
     hoje: hoje,
     dados: {
       ideias: ideias,
@@ -248,7 +288,9 @@ function montarResumo(sessao) {
         }
         return pub;
       }),
-      citacoes: citacoes
+      citacoes: citacoes,
+      // Só o administrador cadastra e vê as recomendações da IA
+      recomendacoes: nivel === "ADMIN" ? lerAba(ss, ABAS.recomendacoes) : []
     },
     listas: { STATUS_IDEIA, TIPOS_INTERACAO, STATUS_ENCAMINHAMENTO, STATUS_CITACAO, PERFIS: Object.keys(PERFIS) }
   };
@@ -264,6 +306,8 @@ function montarDetalhe(idIdeia) {
     idIdeia: id,
     ideia: Object.assign({}, ideia, { ID_Grupo: grupoDaIdeia(ideia) }),
     interacoes: lerAba(ss, ABAS.interacoes).filter(function (i) { return String(i.ID_Ideia) === id; }),
+    curtidas: lerAba(ss, ABAS.curtidas).filter(function (c) { return String(c.ID_Ideia) === id; })
+      .map(function (c) { return { ID_Interacao: c.ID_Interacao, Apelido: c.Apelido, Nome: c.Nome }; }),
     encaminhamentos: lerAba(ss, ABAS.encaminhamentos).filter(function (e) { return String(e.ID_Ideia) === id; })
   };
 }
@@ -348,6 +392,72 @@ function editarGrupo(req) {
   return respostaJSON({ status: "success", message: req.ativo === false ? "Grupo desativado." : req.ativo === true ? "Grupo reativado." : "Grupo atualizado!" });
 }
 
+/* ---------- Recomendações para a IA (somente administrador) ---------- */
+
+/** "" (todos os GTs) ou o ID de um GT existente; null se o GT não existir. */
+function grupoDaRecomendacao(idGrupo) {
+  const id = String(idGrupo || "");
+  if (!id) return "";
+  const existe = lerGrupos(SpreadsheetApp.getActiveSpreadsheet()).some(function (g) { return String(g.ID_Grupo) === id; });
+  return existe ? id : null;
+}
+
+function criarRecomendacao(req) {
+  const titulo = texto(req.titulo, 120);
+  const conteudo = texto(req.texto, 2000);
+  if (!titulo) return erro("Informe o título do metadado.");
+  if (!conteudo) return erro("Escreva o texto do metadado.");
+  const idGrupo = grupoDaRecomendacao(req.idGrupo);
+  if (idGrupo === null) return erro("Grupo de trabalho não encontrado.");
+  const agora = new Date();
+  inserir(ABAS.recomendacoes, {
+    ID_Recomendacao: "REC-" + agora.getTime(),
+    ID_Grupo: idGrupo,
+    Titulo: titulo,
+    Texto: conteudo,
+    Ativo: "Sim",
+    Autor: texto(req.autor, 120),
+    Data_Criacao: agora,
+    Atualizado_Em: agora
+  });
+  return respostaJSON({ status: "success", message: "Metadado cadastrado!" });
+}
+
+function editarRecomendacao(req) {
+  const id = String(req.idRecomendacao || "");
+  if (!existe(ABAS.recomendacoes, "ID_Recomendacao", id)) return erro("Metadado não encontrado.");
+  const campos = { Atualizado_Em: new Date() };
+  if (req.titulo !== undefined) {
+    campos.Titulo = texto(req.titulo, 120);
+    if (!campos.Titulo) return erro("O título não pode ficar vazio.");
+  }
+  if (req.texto !== undefined) {
+    campos.Texto = texto(req.texto, 2000);
+    if (!campos.Texto) return erro("O texto não pode ficar vazio.");
+  }
+  if (req.idGrupo !== undefined) {
+    campos.ID_Grupo = grupoDaRecomendacao(req.idGrupo);
+    if (campos.ID_Grupo === null) return erro("Grupo de trabalho não encontrado.");
+  }
+  if (req.ativo !== undefined) campos.Ativo = req.ativo ? "Sim" : "Não";
+  atualizar(ABAS.recomendacoes, "ID_Recomendacao", id, campos);
+  return respostaJSON({ status: "success", message: req.ativo === false ? "Metadado desativado." : req.ativo === true ? "Metadado reativado." : "Metadado atualizado!" });
+}
+
+function excluirRecomendacao(req) {
+  const apagadas = excluirLinhas(ABAS.recomendacoes, "ID_Recomendacao", [String(req.idRecomendacao || "")]);
+  if (!apagadas) return erro("Metadado não encontrado. Ele pode já ter sido excluído.");
+  return respostaJSON({ status: "success", message: "Metadado excluído." });
+}
+
+/** Recomendações ativas que valem para o GT (as gerais e as do próprio GT). */
+function recomendacoesDoGrupo(ss, idGrupo) {
+  return lerAba(ss, ABAS.recomendacoes).filter(function (r) {
+    const g = String(r.ID_Grupo || "");
+    return grupoAtivo(r) && String(r.Texto || "").trim() && (!g || g === String(idGrupo));
+  });
+}
+
 function editarIdeia(req) {
   const campos = { Atualizado_Em: new Date() };
   if (req.titulo !== undefined) {
@@ -401,6 +511,33 @@ function addInteracao(req) {
   return respostaJSON({ status: "success", message: (tipo === "Sugestão" ? "Sugestão registrada!" : "Comentário registrado!") + extra });
 }
 
+/** Curte a sugestão ou, se o usuário já curtiu, desfaz a curtida (uma por usuário). */
+function curtir(req, sessao) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sugestao = lerAba(ss, ABAS.interacoes).filter(function (i) {
+    return String(i.ID_Interacao) === String(req.idInteracao) && String(i.ID_Ideia) === String(req.idIdeia);
+  })[0];
+  if (!sugestao || sugestao.Tipo !== "Sugestão" || sugestao.ID_Pai) return erro("Sugestão não encontrada.");
+
+  const apelido = String(sessao.apelido).toLowerCase();
+  const minhas = lerAba(ss, ABAS.curtidas).filter(function (c) {
+    return String(c.ID_Interacao) === String(sugestao.ID_Interacao) && String(c.Apelido).toLowerCase() === apelido;
+  });
+  if (minhas.length) {
+    excluirLinhas(ABAS.curtidas, "ID_Curtida", minhas.map(function (c) { return String(c.ID_Curtida); }));
+    return respostaJSON({ status: "success", message: "Curtida removida.", curtiu: false });
+  }
+  inserir(ABAS.curtidas, {
+    ID_Curtida: "CUR-" + new Date().getTime(),
+    ID_Ideia: String(req.idIdeia),
+    ID_Interacao: String(sugestao.ID_Interacao),
+    Apelido: apelido,
+    Nome: texto(sessao.nome, 120),
+    Data: new Date()
+  });
+  return respostaJSON({ status: "success", message: "Sugestão curtida!", curtiu: true });
+}
+
 /** Exclui uma sugestão (com seus comentários) ou um comentário, e as citações ligadas. */
 function excluirInteracao(req) {
   const todas = lerAba(SpreadsheetApp.getActiveSpreadsheet(), ABAS.interacoes);
@@ -413,6 +550,7 @@ function excluirInteracao(req) {
   }
   excluirLinhas(ABAS.interacoes, "ID_Interacao", ids);
   excluirLinhas(ABAS.citacoes, "ID_Interacao", ids);
+  excluirLinhas(ABAS.curtidas, "ID_Interacao", ids);
 
   const qtdComentarios = ids.length - 1;
   return respostaJSON({
@@ -534,6 +672,38 @@ function login(req) {
   cache.put("sess_" + token, JSON.stringify(sessao), SESSAO_SEGUNDOS);
   // Já devolve os dados da carga inicial: uma requisição a menos no login
   return respostaJSON(Object.assign({ status: "success", token: token }, montarResumo(sessao)));
+}
+
+/**
+ * Confere a senha de quem está logado antes de uma exclusão. Devolve a mensagem
+ * de erro, ou "" se a senha confere. Erros contam para o mesmo bloqueio do login.
+ */
+function confirmarSenha(sessao, senha) {
+  senha = String(senha || "");
+  if (!senha) return "Digite a sua senha para confirmar a exclusão.";
+  const apelido = String(sessao.apelido || "").toLowerCase();
+  if (!apelido) return "O acesso de observador não pode excluir.";
+
+  const cache = CacheService.getScriptCache();
+  const chaveFalhas = "falhas_" + apelido;
+  const falhas = Number(cache.get(chaveFalhas) || 0);
+  if (falhas >= MAX_TENTATIVAS) return "Muitas tentativas incorretas. Aguarde 10 minutos e tente novamente.";
+
+  let ok = false;
+  if (apelido === "admin") {
+    const props = PropertiesService.getScriptProperties();
+    const senhaAdmin = props.getProperty("SENHA_ADMIN") || props.getProperty("SENHA_ESCRITA") || "";
+    ok = !!senhaAdmin && senha === senhaAdmin;
+  } else {
+    const u = buscarUsuario(apelido);
+    ok = !!u && conferirSenha(senha, u.Senha_Hash);
+  }
+  if (!ok) {
+    cache.put(chaveFalhas, String(falhas + 1), BLOQUEIO_SEGUNDOS);
+    return "Senha incorreta. A exclusão não foi feita.";
+  }
+  cache.remove(chaveFalhas);
+  return "";
 }
 
 /** Valida o token e revalida o usuário (desativação e troca de perfil valem na hora). */
@@ -791,12 +961,19 @@ function iaSugerirEncaminhamentos(req) {
     .filter(function (e) { return String(e.ID_Ideia) === String(req.idIdeia); })
     .map(function (e) { return "- [" + e.Status + "] " + e.Acao + " (resp.: " + e.Responsavel + ")"; })
     .join("\n") || "(nenhum)";
+  const regras = recomendacoesDoGrupo(ss, grupoDaIdeia(ideia));
+  const recomendacoes = regras
+    .map(function (r) { return "- " + r.Titulo + ": " + r.Texto; })
+    .join("\n");
 
   const prompt =
     "Você assessora um grupo de trabalho. Analise a pauta e a discussão abaixo.\n" +
     "1) Escreva uma síntese objetiva do que foi debatido (pontos de consenso e divergências).\n" +
     "2) Sugira de 2 a 5 encaminhamentos concretos e verificáveis, sem repetir os já registrados.\n" +
     "Só indique um responsável se a discussão apontar alguém; caso contrário deixe vazio.\n" +
+    (recomendacoes
+      ? "\nSiga também estas recomendações definidas pela coordenação ao fazer a síntese e os encaminhamentos:\n" + recomendacoes + "\n"
+      : "") +
     "\nPauta: " + ideia.Titulo +
     "\nContexto: " + (ideia.Descricao || "(sem descrição)") +
     "\n\nDiscussão:\n" + discussao +
@@ -809,7 +986,8 @@ function iaSugerirEncaminhamentos(req) {
   return respostaJSON({
     status: "success",
     sintese: r.json.sintese || "",
-    encaminhamentos: (r.json.encaminhamentos || []).slice(0, 5)
+    encaminhamentos: (r.json.encaminhamentos || []).slice(0, 5),
+    recomendacoesAplicadas: regras.length
   });
 }
 
