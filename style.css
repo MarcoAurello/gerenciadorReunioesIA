@@ -456,6 +456,13 @@ button.btn-curtir:hover { border-color: var(--primaria); color: var(--primaria);
 }
 .texto-vazio { color: var(--texto-suave); font-style: italic; }
 
+/* Relatório da pauta: ocupa quase a tela toda, com o documento num iframe */
+.modal.modal-relatorio { width: min(960px, calc(100% - 24px)); height: calc(100vh - 32px); max-height: none; padding: 0; display: none; flex-direction: column; overflow: hidden; }
+.modal.modal-relatorio[open] { display: flex; }
+.relatorio-barra { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--borda); }
+.relatorio-acoes { display: flex; gap: 8px; flex-wrap: wrap; }
+#relatorioFrame { flex: 1; width: 100%; border: 0; background: var(--fundo); }
+
 /* ---------- Modal ---------- */
 .modal {
   width: min(560px, calc(100% - 32px));

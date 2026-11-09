@@ -86,6 +86,7 @@
           <p id="descGrupo"></p>
         </div>
         <div class="acoes-grupo">
+          <button class="btn btn-secundario" id="btnRelatorioGrupo" title="Todas as pautas do GT com sugestões, comentários e encaminhamentos, prontas para imprimir ou salvar em PDF">Relatório do GT</button>
           <button class="btn btn-secundario somente-admin" id="btnRecomendacoesGrupo" title="Metadados da IA que valem para este GT">Metadados IA</button>
           <button class="btn btn-secundario somente-admin" id="btnEditarGrupo">Editar GT</button>
         </div>
@@ -241,16 +242,29 @@
     </div>
   </dialog>
 
+  <!-- ============ MODAL RELATÓRIO DA PAUTA ============ -->
+  <dialog id="modalRelatorio" class="modal modal-relatorio" aria-label="Relatório da pauta">
+    <div class="relatorio-barra">
+      <strong id="relatorioTitulo">Relatório da pauta</strong>
+      <div class="relatorio-acoes">
+        <button type="button" class="btn btn-fantasma" id="btnFecharRelatorio">Fechar</button>
+        <button type="button" class="btn btn-secundario" id="btnRelatorioAba">Abrir em nova aba</button>
+        <button type="button" class="btn btn-primario" id="btnImprimirRelatorio">Imprimir / Salvar PDF</button>
+      </div>
+    </div>
+    <iframe id="relatorioFrame" title="Relatório da pauta"></iframe>
+  </dialog>
+
   <!-- ============ MODAL CONFIRMAR EXCLUSÃO (com senha) ============ -->
   <dialog id="modalExcluir" class="modal">
     <form id="formExcluir">
-      <h2>Confirmar exclusão</h2>
+      <h2 id="senhaTitulo">Confirmar exclusão</h2>
       <p id="excluirMsg" class="excluir-msg"></p>
-      <label for="excluirSenha">Digite a sua senha para confirmar</label>
+      <label for="excluirSenha" id="senhaRotulo">Digite a sua senha para confirmar</label>
       <input type="password" id="excluirSenha" autocomplete="current-password" required>
       <div class="modal-acoes">
         <button type="button" class="btn btn-fantasma" id="btnCancelarExcluir">Cancelar</button>
-        <button type="submit" class="btn btn-perigo">Excluir</button>
+        <button type="submit" class="btn btn-perigo" id="btnConfirmarSenha">Excluir</button>
       </div>
     </form>
   </dialog>

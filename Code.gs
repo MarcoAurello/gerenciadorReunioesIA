@@ -11,12 +11,12 @@
  *   Observador sem cadastro: usuário em branco + SENHA_LEITURA (opcional;
  *   deixe a propriedade vazia para desativar).
  *
- * Propriedades do script: SENHA_ADMIN, SENHA_LEITURA, GEMINI_API_KEY...
+ * Propriedades do script: SENHA_ADMIN, SENHA_LEITURA, SENHA_IA (botões de IA), GEMINI_API_KEY...
  * O login devolve um token de sessão (6 h); a senha não é reenviada.
  * Toda comunicação é via POST (Content-Type text/plain).
  */
 
-// Sem senhas no código: SENHA_ADMIN e SENHA_LEITURA vêm só das Propriedades do script.
+// Sem senhas no código: SENHA_ADMIN, SENHA_LEITURA e SENHA_IA vêm só das Propriedades do script.
 // configurar() gera uma SENHA_ADMIN aleatória se ainda não houver nenhuma.
 const SESSAO_SEGUNDOS = 6 * 60 * 60;
 const MAX_TENTATIVAS = 5;
@@ -164,9 +164,12 @@ function doPost(e) {
     // O autor é sempre quem está logado — não vem do navegador
     req.autor = sessao.nome;
 
-    // IA não grava nada, então dispensa o lock
-    if (acao === "IA_SUGERIR_PAUTAS") return iaSugerirPautas(req);
-    if (acao === "IA_SUGERIR_ENCAMINHAMENTOS") return iaSugerirEncaminhamentos(req);
+    // IA não grava nada, então dispensa o lock; mas exige a senha da IA (propriedade SENHA_IA)
+    if (acao === "IA_SUGERIR_PAUTAS" || acao === "IA_SUGERIR_ENCAMINHAMENTOS") {
+      const falhaIA = conferirSenhaIA(req.senhaIA);
+      if (falhaIA) return respostaJSON({ status: "error", codigo: "SENHA_IA", message: falhaIA });
+      return acao === "IA_SUGERIR_PAUTAS" ? iaSugerirPautas(req) : iaSugerirEncaminhamentos(req);
+    }
 
     const handlers = {
       CRIAR_IDEIA: criarIdeia,
@@ -901,14 +904,46 @@ function chamarIA(prompt) {
 
   const temReserva = disponiveis.length > 1;
   const erros = [];
+  const inicio = Date.now();
   for (let i = 0; i < disponiveis.length; i++) {
     const provedor = disponiveis[i];
+    const nome = provedor === "gemini" ? "Gemini" : "Groq";
+    const t0 = Date.now();
     // Com reserva disponível, a principal desiste mais rápido (menos espera na tela)
     const r = provedor === "gemini" ? chamarGemini(prompt, { rapido: temReserva }) : chamarGroq(prompt);
-    if (r.json) return { json: r.json, provedor: provedor };
-    erros.push((provedor === "gemini" ? "Gemini" : "Groq") + ": " + r.erro);
+    // Aparece em Execuções no editor do Apps Script: mostra onde o tempo foi gasto
+    console.log("IA " + nome + (r.modelo ? " (" + r.modelo + ")" : "") + ": " + (r.json ? "ok" : "falhou") +
+      " em " + ((Date.now() - t0) / 1000).toFixed(1) + " s" + (r.erro ? " — " + r.erro : ""));
+    if (r.json) {
+      return { json: r.json, provedor: nome, modelo: r.modelo || "", segundos: Math.round((Date.now() - inicio) / 1000) };
+    }
+    erros.push(nome + ": " + r.erro);
   }
   return { erro: erros.join(" | ") };
+}
+
+/**
+ * Senha para usar a IA, guardada na propriedade SENHA_IA (fora do código, que é público).
+ * Erros contam para um bloqueio de 10 minutos, como no login. Devolve a mensagem de erro ou "".
+ */
+function conferirSenhaIA(senha) {
+  const certa = PropertiesService.getScriptProperties().getProperty("SENHA_IA") || "";
+  if (!certa) return "A senha da IA não foi configurada. Cadastre SENHA_IA nas Propriedades do script.";
+  senha = String(senha || "");
+  if (!senha) return "Digite a senha da IA.";
+  const cache = CacheService.getScriptCache();
+  const falhas = Number(cache.get("falhas_senha_ia") || 0);
+  if (falhas >= MAX_TENTATIVAS) return "Muitas tentativas incorretas da senha da IA. Aguarde 10 minutos.";
+  if (senha !== certa) {
+    cache.put("falhas_senha_ia", String(falhas + 1), BLOQUEIO_SEGUNDOS);
+    return "Senha da IA incorreta.";
+  }
+  return "";
+}
+
+/** Qual IA respondeu e em quanto tempo (mostrado discretamente na tela). */
+function infoIA(r) {
+  return { provedor: r.provedor, modelo: r.modelo, segundos: r.segundos };
 }
 
 function iaSugerirPautas(req) {
@@ -939,7 +974,7 @@ function iaSugerirPautas(req) {
 
   const r = chamarIA(prompt);
   if (r.erro) return erro(r.erro);
-  return respostaJSON({ status: "success", sugestoes: (r.json.sugestoes || []).slice(0, 5) });
+  return respostaJSON({ status: "success", sugestoes: (r.json.sugestoes || []).slice(0, 5), ia: infoIA(r) });
 }
 
 function iaSugerirEncaminhamentos(req) {
@@ -987,7 +1022,8 @@ function iaSugerirEncaminhamentos(req) {
     status: "success",
     sintese: r.json.sintese || "",
     encaminhamentos: (r.json.encaminhamentos || []).slice(0, 5),
-    recomendacoesAplicadas: regras.length
+    recomendacoesAplicadas: regras.length,
+    ia: infoIA(r)
   });
 }
 
@@ -998,8 +1034,9 @@ function chamarGemini(prompt, opcoes) {
   if (!chave) return { erro: "IA não configurada: cadastre GEMINI_API_KEY nas Propriedades do script." };
   let modelo = props.getProperty("GEMINI_MODELO") || GEMINI_MODELO_PADRAO;
   const pausas = rapido ? PAUSAS_REPETICAO_MS.slice(0, 1) : PAUSAS_REPETICAO_MS;
+  const inicio = Date.now();
 
-  let resp = gerarComRepeticao(chave, modelo, prompt, pausas);
+  let resp = gerarComRepeticao(chave, modelo, prompt, pausas, inicio);
   let codigo = resp.getResponseCode();
 
   // Modelo aposentado/inexistente: escolhe um "flash" disponível para a chave,
@@ -1009,20 +1046,21 @@ function chamarGemini(prompt, opcoes) {
     if (alternativo) {
       props.setProperty("GEMINI_MODELO", alternativo);
       modelo = alternativo;
-      resp = gerarComRepeticao(chave, modelo, prompt, pausas);
+      resp = gerarComRepeticao(chave, modelo, prompt, pausas, inicio);
       codigo = resp.getResponseCode();
     }
   }
 
   // Sobrecarga persistente: usa outro modelo flash só nesta chamada (sem gravar).
-  // No modo rápido pula esta etapa — o Groq assume no lugar.
-  if (sobrecarga(codigo) && !rapido) {
+  // No modo rápido, ou se já passou do limite de tempo, pula esta etapa.
+  if (sobrecarga(codigo) && !rapido && Date.now() - inicio < LIMITE_TENTATIVAS_MS) {
     const reserva = escolherModeloReserva(chave, modelo);
     if (reserva) {
-      const r2 = gerarComRepeticao(chave, reserva, prompt, pausas);
+      const r2 = gerarComRepeticao(chave, reserva, prompt, pausas, inicio);
       if (r2.getResponseCode() === 200) {
         resp = r2;
         codigo = 200;
+        modelo = reserva;
       }
     }
   }
@@ -1031,14 +1069,28 @@ function chamarGemini(prompt, opcoes) {
   try {
     const corpo = JSON.parse(resp.getContentText());
     const saida = corpo.candidates[0].content.parts.map(function (p) { return p.text || ""; }).join("");
-    return { json: JSON.parse(saida) };
+    return { json: JSON.parse(saida), modelo: modelo };
   } catch (e) {
     return { erro: "Não foi possível interpretar a resposta da IA." };
   }
 }
 
-function gerarConteudo(chave, modelo, prompt) {
-  return UrlFetchApp.fetch(
+/**
+ * Os modelos Gemini 2.5+ "pensam" antes de responder, o que pode somar dezenas de
+ * segundos. Para síntese e sugestões isso não é necessário: desliga (2.5 flash)
+ * ou reduz ao mínimo (Gemini 3). Modelos que não aceitam a opção são chamados sem ela.
+ */
+function configPensamento(modelo) {
+  if (/2\.5-flash/i.test(modelo)) return { thinkingBudget: 0 };
+  if (/gemini-3/i.test(modelo)) return { thinkingLevel: "low" };
+  return null;
+}
+
+function gerarConteudo(chave, modelo, prompt, semPensamento) {
+  const config = { temperature: 0.6, responseMimeType: "application/json" };
+  const pensamento = semPensamento === false ? null : configPensamento(modelo);
+  if (pensamento) config.thinkingConfig = pensamento;
+  const resp = UrlFetchApp.fetch(
     "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(modelo) + ":generateContent",
     {
       method: "post",
@@ -1047,20 +1099,29 @@ function gerarConteudo(chave, modelo, prompt) {
       muteHttpExceptions: true,
       payload: JSON.stringify({
         contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.6, responseMimeType: "application/json" }
+        generationConfig: config
       })
     }
   );
+  // Modelo que não aceita configurar o pensamento: repete sem a opção
+  if (pensamento && resp.getResponseCode() === 400 && /think/i.test(resp.getContentText())) {
+    return gerarConteudo(chave, modelo, prompt, false);
+  }
+  return resp;
 }
 
 const PAUSAS_REPETICAO_MS = [2000, 5000];
+// Passado este tempo, não tenta de novo nem troca de modelo: devolve o erro (ou passa para o Groq)
+const LIMITE_TENTATIVAS_MS = 25000;
 const sobrecarga = function (codigo) { return codigo === 503 || codigo === 500 || codigo === 502 || codigo === 504; };
 
 /** Repete a chamada em caso de sobrecarga temporária do Gemini (503/500), com pausas crescentes. */
-function gerarComRepeticao(chave, modelo, prompt, pausas) {
+function gerarComRepeticao(chave, modelo, prompt, pausas, inicio) {
   pausas = pausas || PAUSAS_REPETICAO_MS;
+  inicio = inicio || Date.now();
   let resp = gerarConteudo(chave, modelo, prompt);
   for (let i = 0; i < pausas.length && sobrecarga(resp.getResponseCode()); i++) {
+    if (Date.now() - inicio + pausas[i] > LIMITE_TENTATIVAS_MS) break;
     Utilities.sleep(pausas[i]);
     resp = gerarConteudo(chave, modelo, prompt);
   }
@@ -1184,7 +1245,7 @@ function chamarGroq(prompt) {
 
   try {
     const corpo = JSON.parse(resp.getContentText());
-    return { json: JSON.parse(corpo.choices[0].message.content) };
+    return { json: JSON.parse(corpo.choices[0].message.content), modelo: modelo };
   } catch (e) {
     return { erro: "Não foi possível interpretar a resposta do Groq." };
   }

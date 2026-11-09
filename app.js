@@ -82,7 +82,8 @@ const LOADING_ACAO = {
   CRIAR_RECOMENDACAO: "Salvando o metadado...",
   EDITAR_RECOMENDACAO: "Salvando o metadado...",
   IA_SUGERIR_PAUTAS: "Enviando as pautas do GT para a IA...",
-  IA_SUGERIR_ENCAMINHAMENTOS: "Enviando a pauta e os comentários para a IA..."
+  IA_SUGERIR_ENCAMINHAMENTOS: "Enviando a pauta e os comentários para a IA...",
+  RELATORIO_GT: "Preparando o relatório do GT..."
 };
 // Mensagens que vão se revezando enquanto a resposta não chega
 const LOADING_SEGUINTES = {
@@ -91,6 +92,12 @@ const LOADING_SEGUINTES = {
 };
 const LOADING_INTERVALO = 3500;
 let loadingRelogio = null;
+let loadingProgresso = null; // texto de progresso real; enquanto houver, não reveza mensagens
+
+function definirProgressoLoading(texto) {
+  loadingProgresso = texto;
+  if (texto && $("#loadingMsg").textContent !== texto) $("#loadingMsg").textContent = texto;
+}
 
 function trocarMensagemLoading(texto) {
   const el = $("#loadingMsg");
@@ -111,7 +118,7 @@ function iniciarMensagensLoading(acao) {
     const seg = Math.round((Date.now() - inicio) / 1000);
     // A última mensagem fica fixa; antes dela, uma nova a cada LOADING_INTERVALO
     const novoPasso = Math.min(Math.floor((Date.now() - inicio) / LOADING_INTERVALO) - 1, seguintes.length - 1);
-    if (novoPasso > passo) { passo = novoPasso; trocarMensagemLoading(seguintes[passo]); }
+    if (!loadingProgresso && novoPasso > passo) { passo = novoPasso; trocarMensagemLoading(seguintes[passo]); }
     $("#loadingTempo").textContent = seg >= 5 ? `${seg} s` : "";
   }, 500);
 }
@@ -278,6 +285,7 @@ async function abrirApp(resposta, silencioso = false) {
 }
 
 function encerrarSessaoLocal() {
+  senhaIA = "";
   estado.token = "";
   estado.usuario = null;
   estado.detalhes = {};
@@ -378,8 +386,19 @@ const podeExcluirInteracoes = () => !!(estado.usuario && estado.usuario.podeExcl
 
 /** Pede a senha de quem está logado antes de excluir. Devolve a senha, ou null se cancelar. */
 function pedirSenhaExclusao(mensagem) {
+  return pedirSenha({ titulo: "Confirmar exclusão", mensagem, rotulo: "Digite a sua senha para confirmar", botao: "Excluir", perigo: true });
+}
+
+/** Janela de senha reaproveitada (exclusão e IA). Devolve a senha digitada, ou null se cancelar. */
+function pedirSenha({ titulo, mensagem, rotulo, botao, perigo = false }) {
   const modal = $("#modalExcluir");
+  $("#senhaTitulo").textContent = titulo;
   $("#excluirMsg").textContent = mensagem;
+  $("#excluirMsg").hidden = !mensagem;
+  $("#senhaRotulo").textContent = rotulo;
+  $("#btnConfirmarSenha").textContent = botao;
+  $("#btnConfirmarSenha").className = "btn " + (perigo ? "btn-perigo" : "btn-primario");
+  $("#excluirSenha").autocomplete = perigo ? "current-password" : "off";
   $("#formExcluir").reset();
   modal.showModal();
   $("#excluirSenha").focus();
@@ -705,7 +724,12 @@ function renderizarDetalhe() {
         ${estado.listas.STATUS_IDEIA.map(s => `<option ${s === ideia.Status ? "selected" : ""}>${esc(s)}</option>`).join("")}
       </select>
       <button class="btn btn-secundario btn-pequeno" id="btnEditarPauta">Editar</button>
-    </div>` : seloStatus(ideia.Status);
+      <button class="btn btn-secundario btn-pequeno" id="btnRelatorio" title="Sugestões, comentários e encaminhamentos da pauta, prontos para imprimir ou salvar em PDF">Relatório</button>
+    </div>` : `
+    <div class="acoes-pauta">
+      ${seloStatus(ideia.Status)}
+      <button class="btn btn-secundario btn-pequeno" id="btnRelatorio" title="Sugestões, comentários e encaminhamentos da pauta, prontos para imprimir ou salvar em PDF">Relatório</button>
+    </div>`;
 
   det.innerHTML = `
     <div class="detalhe-cab">
@@ -887,7 +911,7 @@ function blocoIaEncaminhamentos(ideia) {
   if (!sug) return cab;
 
   return cab + `<div class="ia-resultado" style="margin:0 0 16px">
-    ${sug.sintese ? `<div class="ia-bloco ia-sintese"><h4>Síntese da discussão</h4><p>${esc(sug.sintese)}</p>${sug.recomendacoes ? `<small class="ia-regras">Seguindo ${sug.recomendacoes} metadado(s) da coordenação.</small>` : ""}</div>` : ""}
+    ${sug.sintese ? `<div class="ia-bloco ia-sintese"><h4>Síntese da discussão</h4><p>${esc(sug.sintese)}</p>${sug.recomendacoes ? `<small class="ia-regras">Seguindo ${sug.recomendacoes} metadado(s) da coordenação.</small>` : ""}${textoInfoIA(sug.ia)}</div>` : ""}
     ${sug.encaminhamentos.map((e, idx) => `
       <div class="ia-bloco ${e.adotado ? "adotado" : ""}">
         <p>${esc(e.acao)}</p>
@@ -971,11 +995,20 @@ let sugestoesPautas = [];
 
 async function gerarSugestoesPautas(ev) {
   ev.preventDefault();
-  const r = await api("IA_SUGERIR_PAUTAS", { tema: $("#iaTema").value, idGrupo: estado.grupo });
+  const r = await apiComSenhaIA("IA_SUGERIR_PAUTAS", { tema: $("#iaTema").value, idGrupo: estado.grupo });
+  if (!r) return;
   if (r.status !== "success") return aviso(r.message, true);
   sugestoesPautas = r.sugestoes || [];
+  infoPautasIA = r.ia || null;
   renderizarSugestoesPautas();
 }
+
+let infoPautasIA = null;
+
+/** "Gemini (gemini-2.5-flash) · 8 s" — ajuda a ver qual IA respondeu e quanto demorou. */
+const textoInfoIA = ia => ia && ia.provedor
+  ? `<small class="ia-regras">Respondido por ${esc(ia.provedor)}${ia.modelo ? ` (${esc(ia.modelo)})` : ""}${ia.segundos !== undefined ? ` em ${ia.segundos} s` : ""}.</small>`
+  : "";
 
 function renderizarSugestoesPautas() {
   $("#iaResultado").innerHTML = sugestoesPautas.length ? sugestoesPautas.map((s, idx) => `
@@ -986,7 +1019,7 @@ function renderizarSugestoesPautas() {
       <div class="rodape">
         <button class="btn btn-primario btn-pequeno" data-adotar-pauta="${idx}" ${s.adotado ? "disabled" : ""}>${s.adotado ? "Adotada ✓" : "Adotar como pauta"}</button>
       </div>
-    </div>`).join("") : `<p class="texto-vazio">A IA não retornou sugestões. Tente outro foco.</p>`;
+    </div>`).join("") + textoInfoIA(infoPautasIA) : `<p class="texto-vazio">A IA não retornou sugestões. Tente outro foco.</p>`;
 }
 
 async function adotarPauta(idx) {
@@ -999,13 +1032,33 @@ async function adotarPauta(idx) {
 /* IA — sugerir encaminhamentos                                */
 /* ---------------------------------------------------------- */
 
+// Senha da IA digitada nesta aba: pedida no primeiro uso e lembrada até recarregar a página
+let senhaIA = "";
+
+/**
+ * Chama uma ação de IA com a senha da IA. Pede a senha se ainda não foi digitada e,
+ * se o servidor recusar, esquece a senha para pedir de novo na próxima vez.
+ */
+async function apiComSenhaIA(acao, dados) {
+  if (!senhaIA) {
+    const senha = await pedirSenha({ titulo: "Senha da IA", mensagem: "", rotulo: "Digite a senha para usar a IA", botao: "Usar a IA" });
+    if (senha === null) return null;
+    senhaIA = senha;
+  }
+  const r = await api(acao, { ...dados, senhaIA });
+  if (r.codigo === "SENHA_IA") senhaIA = "";
+  return r;
+}
+
 async function gerarSugestoesEncaminhamentos() {
   const id = estado.selecionada;
-  const r = await api("IA_SUGERIR_ENCAMINHAMENTOS", { idIdeia: id });
+  const r = await apiComSenhaIA("IA_SUGERIR_ENCAMINHAMENTOS", { idIdeia: id });
+  if (!r) return;
   if (r.status !== "success") return aviso(r.message, true);
   estado.iaEncaminhamentos[id] = {
     sintese: r.sintese,
     recomendacoes: Number(r.recomendacoesAplicadas) || 0,
+    ia: r.ia || null,
     encaminhamentos: (r.encaminhamentos || []).map(e => ({
       acao: e.acao,
       responsavel: e.responsavel || "",
@@ -1077,6 +1130,283 @@ async function excluirInteracao(id) {
   const senha = await pedirSenhaExclusao(msg);
   if (senha === null) return;
   await gravar("EXCLUIR_INTERACAO", { idInteracao: id, idIdeia: estado.selecionada, senha });
+}
+
+/* ---------------------------------------------------------- */
+/* Relatório da pauta (imprimir ou salvar em PDF)              */
+/* ---------------------------------------------------------- */
+
+let relatorioAtual = "";
+
+/** Mostra o relatório dentro do sistema (sem pop-up, que muitos navegadores bloqueiam). */
+async function gerarRelatorio(idIdeia) {
+  // Busca a versão mais recente da pauta antes de montar
+  await carregarDetalhe(idIdeia);
+  const det = detalheDe(idIdeia);
+  if (!det) return aviso("Não foi possível carregar a pauta para o relatório.", true);
+  relatorioAtual = htmlRelatorio(ideiaCompleta(idIdeia), det);
+  $("#relatorioTitulo").textContent = "Relatório da pauta";
+  $("#relatorioFrame").srcdoc = relatorioAtual;
+  $("#modalRelatorio").showModal();
+}
+
+/** Relatório de todas as pautas do GT aberto: carrega cada uma (com progresso no loading) e monta. */
+async function gerarRelatorioGrupo() {
+  const grupo = grupoAtual();
+  if (!grupo) return;
+  const ideias = ideiasDoGrupo().sort((a, b) => String(a.Data_Criacao).localeCompare(String(b.Data_Criacao)));
+  const faltando = ideias.filter(i => !detalheDe(i.ID_Ideia));
+
+  mostrarLoading("RELATORIO_GT");
+  try {
+    // Até 3 pautas por vez, para não sobrecarregar o Apps Script
+    let prontas = ideias.length - faltando.length;
+    const avancar = () => definirProgressoLoading(`Carregando as pautas do GT: ${prontas} de ${ideias.length}...`);
+    avancar();
+    const fila = [...faltando];
+    await Promise.all(Array.from({ length: Math.min(3, fila.length) }, async () => {
+      while (fila.length) {
+        await carregarDetalhe(fila.shift().ID_Ideia);
+        prontas++;
+        avancar();
+      }
+    }));
+    definirProgressoLoading("Montando o relatório...");
+    const pautas = ideias.map(i => ({ ideia: ideiaCompleta(i.ID_Ideia), det: detalheDe(i.ID_Ideia) })).filter(p => p.det);
+    if (pautas.length < ideias.length) aviso(`${ideias.length - pautas.length} pauta(s) não carregaram e ficaram fora do relatório. Tente de novo.`, true);
+    relatorioAtual = htmlRelatorioGrupo(grupo, pautas);
+  } finally {
+    definirProgressoLoading(null);
+    esconderLoading();
+  }
+  $("#relatorioTitulo").textContent = `Relatório do GT · ${grupo.Nome}`;
+  $("#relatorioFrame").srcdoc = relatorioAtual;
+  $("#modalRelatorio").showModal();
+}
+
+function imprimirRelatorio() {
+  const frame = $("#relatorioFrame").contentWindow;
+  frame.focus();
+  frame.print();
+}
+
+function abrirRelatorioEmAba() {
+  const url = URL.createObjectURL(new Blob([relatorioAtual], { type: "text/html;charset=utf-8" }));
+  const aba = window.open(url, "_blank");
+  if (!aba) aviso("O navegador bloqueou a nova aba. Use Imprimir / Salvar PDF.", true);
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+const ESTILO_RELATORIO = `
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #f7f4f4; color: #1c2430; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .folha { max-width: 820px; margin: 24px auto; background: #fff; padding: 40px 48px; border-radius: 10px; box-shadow: 0 1px 3px rgba(16,24,40,.1); }
+  .topo { display: flex; align-items: center; gap: 14px; border-bottom: 3px solid #7a1f2b; padding-bottom: 14px; }
+  .topo img { width: 44px; height: auto; }
+  .topo .sis { font-size: 12px; color: #5d6b7e; text-transform: uppercase; letter-spacing: .06em; }
+  h1 { font-size: 22px; margin: 18px 0 4px; color: #7a1f2b; }
+  h2 { font-size: 15px; margin: 28px 0 10px; padding-bottom: 4px; border-bottom: 1px solid #dde3ec; color: #5c1520; text-transform: uppercase; letter-spacing: .04em; }
+  .info { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; font-size: 13px; color: #5d6b7e; margin-top: 8px; }
+  .info b { color: #1c2430; font-weight: 600; }
+  .descricao { white-space: normal; margin: 12px 0 0; }
+  .numeros { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 16px; }
+  .numeros div { border: 1px solid #dde3ec; border-radius: 8px; padding: 8px 10px; }
+  .numeros strong { display: block; font-size: 20px; color: #7a1f2b; }
+  .numeros span { font-size: 12px; color: #5d6b7e; }
+  .sintese { background: #f4effb; border-left: 3px solid #6b3fb0; padding: 10px 14px; border-radius: 6px; }
+  .sintese small { display: block; color: #5d6b7e; margin-top: 6px; }
+  .sugestao { border: 1px solid #f0dc8f; border-left: 3px solid #e6c75a; background: #fffcf0; border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; break-inside: avoid; }
+  header { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+  header span { color: #5d6b7e; white-space: nowrap; }
+  .sugestao > p, li p { margin: 6px 0 0; }
+  .meta { font-size: 12px; color: #5d6b7e; margin-top: 8px; }
+  .comentarios { list-style: none; margin: 10px 0 0; padding: 0 0 0 14px; border-left: 2px solid #f6e8ea; display: grid; gap: 8px; }
+  .comentarios li { background: #fff; border: 1px solid #eceff4; border-radius: 6px; padding: 8px 10px; break-inside: avoid; }
+  .soltos { padding-left: 0; border-left: none; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid #dde3ec; vertical-align: top; }
+  th { background: #f6e8ea; color: #5c1520; font-size: 12px; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.atrasado td { color: #b42318; }
+  .vazio { color: #5d6b7e; font-style: italic; }
+  .pauta { margin-top: 40px; padding-top: 8px; border-top: 3px solid #f6e8ea; }
+  .pauta .ordem { font-size: 12px; color: #5d6b7e; text-transform: uppercase; letter-spacing: .06em; margin-top: 12px; }
+  .pauta h1 { margin-top: 2px; }
+  .rodape { margin-top: 32px; padding-top: 10px; border-top: 1px solid #dde3ec; font-size: 11px; color: #5d6b7e; display: flex; justify-content: space-between; gap: 12px; }
+  a { color: #2459a8; word-break: break-all; }
+  @media (max-width: 640px) { .folha { padding: 24px 16px; margin: 12px 0; border-radius: 0; } .numeros { grid-template-columns: repeat(2, 1fr); } }
+  @media print {
+    @page { margin: 16mm; }
+    body { background: #fff; }
+    .folha { box-shadow: none; margin: 0; padding: 0; max-width: none; }
+    .pauta { break-before: page; border-top: none; margin-top: 0; padding-top: 0; }
+    .sugestao, .sintese, th, .numeros div { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }`;
+
+const textoRelatorio = t => esc(t).replace(/\n/g, "<br>");
+const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
+
+/** Números e listas de uma pauta, usados no relatório da pauta e no do GT. */
+function dadosDaPauta(det) {
+  const porData = (a, b) => String(a.Data).localeCompare(String(b.Data));
+  const interacoes = det.interacoes || [];
+  const ids = new Set(interacoes.map(i => String(i.ID_Interacao)));
+  const encs = [...(det.encaminhamentos || [])].sort((a, b) => (prazoISO(a.Prazo) || "9999").localeCompare(prazoISO(b.Prazo) || "9999"));
+  return {
+    interacoes,
+    curtidas: det.curtidas || [],
+    encs,
+    sugestoes: interacoes.filter(i => i.Tipo === "Sugestão" && !i.ID_Pai).sort(porData),
+    avulsos: interacoes.filter(i => i.Tipo !== "Sugestão" && !(i.ID_Pai && ids.has(String(i.ID_Pai)))).sort(porData),
+    comentariosDe: id => interacoes.filter(i => String(i.ID_Pai) === String(id)).sort(porData),
+    nComentarios: interacoes.filter(i => i.ID_Pai && ids.has(String(i.ID_Pai))).length,
+    nAtrasados: encs.filter(atrasado).length
+  };
+}
+
+/** Conteúdo de uma pauta: dados, números, síntese, sugestões com comentários e encaminhamentos. */
+function corpoPauta(ideia, det, { comGrupo = true } = {}) {
+  const d = dadosDaPauta(det);
+  const grupo = (estado.dados.grupos || []).find(g => String(g.ID_Grupo) === grupoDe(ideia));
+  const sintese = (estado.iaEncaminhamentos[ideia.ID_Ideia] || {}).sintese;
+  const curtidasDe = id => d.curtidas.filter(c => String(c.ID_Interacao) === String(id));
+
+  const blocoSugestoes = d.sugestoes.length ? d.sugestoes.map((s, n) => {
+    const coms = d.comentariosDe(s.ID_Interacao);
+    const curt = curtidasDe(s.ID_Interacao);
+    return `
+      <article class="sugestao">
+        <header><strong>${n + 1}. ${esc(s.Autor)}</strong><span>${fmtData(s.Data, true)}</span></header>
+        <p>${textoRelatorio(s.Texto)}</p>
+        <div class="meta">${plural(curt.length, "curtida", "curtidas")}${curt.length ? ` (${esc(curt.map(c => c.Nome || "@" + c.Apelido).join(", "))})` : ""} · ${plural(coms.length, "comentário", "comentários")}</div>
+        ${coms.length ? `<ul class="comentarios">${coms.map(c => `
+          <li><header><strong>${esc(c.Autor)}</strong><span>${fmtData(c.Data, true)}</span></header><p>${textoRelatorio(c.Texto)}</p></li>`).join("")}
+        </ul>` : ""}
+      </article>`;
+  }).join("") : `<p class="vazio">Nenhuma sugestão registrada.</p>`;
+
+  const blocoAvulsos = d.avulsos.length ? `
+    <h2>Comentários gerais anteriores</h2>
+    <ul class="comentarios soltos">${d.avulsos.map(c => `
+      <li><header><strong>${esc(c.Autor)}</strong><span>${fmtData(c.Data, true)}</span></header><p>${textoRelatorio(c.Texto)}</p></li>`).join("")}
+    </ul>` : "";
+
+  const blocoEncs = d.encs.length ? `
+    <table>
+      <thead><tr><th>Ação</th><th>Responsável</th><th>Prazo</th><th>Status</th></tr></thead>
+      <tbody>${d.encs.map(e => `
+        <tr class="${atrasado(e) ? "atrasado" : ""}">
+          <td>${textoRelatorio(e.Acao)}</td>
+          <td>${esc(e.Responsavel || "—")}</td>
+          <td>${fmtData(prazoISO(e.Prazo)) || "—"}${atrasado(e) ? "<br><small>atrasado</small>" : ""}</td>
+          <td>${esc(e.Status)}</td>
+        </tr>`).join("")}
+      </tbody>
+    </table>` : `<p class="vazio">Nenhum encaminhamento registrado.</p>`;
+
+  return `
+    <h1>${esc(ideia.Titulo)}</h1>
+    <div class="info">
+      ${comGrupo ? `<span>Grupo de trabalho</span><b>${esc(grupo ? grupo.Nome : "—")}</b>` : ""}
+      <span>Status</span><b>${esc(ideia.Status || "—")}</b>
+      <span>Criada em</span><b>${fmtData(ideia.Data_Criacao, true)}${ideia.Autor ? " por " + esc(ideia.Autor) : ""}</b>
+      ${ideia.Link_Doc_Oficial ? `<span>Texto oficial</span><b><a href="${esc(ideia.Link_Doc_Oficial)}">${esc(ideia.Link_Doc_Oficial)}</a></b>` : ""}
+    </div>
+    ${ideia.Descricao ? `<p class="descricao">${textoRelatorio(ideia.Descricao)}</p>` : ""}
+
+    <div class="numeros">
+      <div><strong>${d.sugestoes.length}</strong><span>sugestões</span></div>
+      <div><strong>${d.nComentarios}</strong><span>comentários</span></div>
+      <div><strong>${d.curtidas.length}</strong><span>curtidas</span></div>
+      <div><strong>${d.encs.length}</strong><span>encaminhamentos${d.nAtrasados ? ` (${plural(d.nAtrasados, "atrasado", "atrasados")})` : ""}</span></div>
+    </div>
+
+    ${sintese ? `<h2>Síntese da discussão (IA)</h2><div class="sintese">${textoRelatorio(sintese)}<small>Gerada pela IA nesta sessão. Confira antes de usar como registro oficial.</small></div>` : ""}
+
+    <h2>Sugestões e comentários</h2>
+    ${blocoSugestoes}
+    ${blocoAvulsos}
+
+    <h2>Encaminhamentos</h2>
+    ${blocoEncs}`;
+}
+
+/** Página completa do relatório: cabeçalho com logo, conteúdo e rodapé. */
+function paginaRelatorio(tituloAba, subtitulo, corpo) {
+  const logo = new URL("logo.svg", location.href).href;
+  return `<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(tituloAba)}</title>
+<style>${ESTILO_RELATORIO}</style>
+</head>
+<body>
+  <main class="folha">
+    <div class="topo">
+      <img src="${esc(logo)}" alt="">
+      <div><div class="sis">Sistema de Apoio a Reuniões</div><strong>${esc(subtitulo)}</strong></div>
+    </div>
+    ${corpo}
+    <div class="rodape">
+      <span>Gerado em ${fmtData(new Date().toISOString(), true)}${estado.usuario ? " por " + esc(estado.usuario.nome) : ""}</span>
+      <span>Sistema de Apoio a Reuniões · GTIC Hemobrás</span>
+    </div>
+  </main>
+</body>
+</html>`;
+}
+
+function htmlRelatorio(ideia, det) {
+  return paginaRelatorio(`Relatório · ${ideia.Titulo}`, "Relatório da pauta", corpoPauta(ideia, det));
+}
+
+/** Relatório do GT: resumo de todas as pautas e, em seguida, cada pauta completa (uma por página na impressão). */
+function htmlRelatorioGrupo(grupo, pautas) {
+  const linhas = pautas.map(({ ideia, det }) => ({ ideia, d: dadosDaPauta(det) }));
+  const soma = campo => linhas.reduce((t, l) => t + campo(l.d), 0);
+  const porStatus = estado.listas.STATUS_IDEIA
+    .map(s => [s, pautas.filter(p => p.ideia.Status === s).length])
+    .filter(([, n]) => n)
+    .map(([s, n]) => `${esc(s)}: ${n}`).join(" · ");
+
+  const resumo = `
+    <h1>${esc(grupo.Nome)}</h1>
+    <div class="info">
+      ${grupo.Descricao ? `<span>Objetivo</span><b>${esc(grupo.Descricao)}</b>` : ""}
+      <span>Pautas</span><b>${pautas.length}${porStatus ? ` (${porStatus})` : ""}</b>
+    </div>
+
+    <div class="numeros">
+      <div><strong>${soma(d => d.sugestoes.length)}</strong><span>sugestões</span></div>
+      <div><strong>${soma(d => d.nComentarios)}</strong><span>comentários</span></div>
+      <div><strong>${soma(d => d.curtidas.length)}</strong><span>curtidas</span></div>
+      <div><strong>${soma(d => d.encs.length)}</strong><span>encaminhamentos${soma(d => d.nAtrasados) ? ` (${plural(soma(d => d.nAtrasados), "atrasado", "atrasados")})` : ""}</span></div>
+    </div>
+
+    <h2>Resumo das pautas</h2>
+    ${linhas.length ? `<table>
+      <thead><tr><th>#</th><th>Pauta</th><th>Status</th><th class="num">Sugestões</th><th class="num">Comentários</th><th class="num">Encaminhamentos</th></tr></thead>
+      <tbody>${linhas.map(({ ideia, d }, n) => `
+        <tr class="${d.nAtrasados ? "atrasado" : ""}">
+          <td>${n + 1}</td>
+          <td>${esc(ideia.Titulo)}</td>
+          <td>${esc(ideia.Status || "—")}</td>
+          <td class="num">${d.sugestoes.length}</td>
+          <td class="num">${d.nComentarios}</td>
+          <td class="num">${d.encs.length}${d.nAtrasados ? `<br><small>${plural(d.nAtrasados, "atrasado", "atrasados")}</small>` : ""}</td>
+        </tr>`).join("")}
+      </tbody>
+    </table>` : `<p class="vazio">Nenhuma pauta neste grupo.</p>`}`;
+
+  const detalhes = pautas.map(({ ideia, det }, n) => `
+    <section class="pauta">
+      <div class="ordem">Pauta ${n + 1} de ${pautas.length}</div>
+      ${corpoPauta(ideia, det, { comGrupo: false })}
+    </section>`).join("");
+
+  return paginaRelatorio(`Relatório · ${grupo.Nome}`, "Relatório do grupo de trabalho", resumo + detalhes);
 }
 
 /* ---------------------------------------------------------- */
@@ -1367,6 +1697,10 @@ $("#listaCitacoes").addEventListener("click", async ev => {
 
 $("#btnUsuarios").addEventListener("click", () => { renderizarUsuarios(); $("#modalUsuarios").showModal(); $("#uNome").focus(); });
 $("#btnFecharUsuarios").addEventListener("click", () => $("#modalUsuarios").close());
+$("#btnFecharRelatorio").addEventListener("click", () => $("#modalRelatorio").close());
+$("#btnRelatorioGrupo").addEventListener("click", gerarRelatorioGrupo);
+$("#btnImprimirRelatorio").addEventListener("click", imprimirRelatorio);
+$("#btnRelatorioAba").addEventListener("click", abrirRelatorioEmAba);
 $("#btnRecomendacoes").addEventListener("click", () => abrirRecomendacoes());
 $("#btnRecomendacoesGrupo").addEventListener("click", () => abrirRecomendacoes(estado.grupo));
 $("#btnFecharRecomendacoes").addEventListener("click", () => $("#modalRecomendacoes").close());
@@ -1499,6 +1833,7 @@ detalhe.addEventListener("click", ev => {
     })();
   }
   if (ev.target.closest("#btnIaEnc")) return gerarSugestoesEncaminhamentos();
+  if (ev.target.closest("#btnRelatorio")) return gerarRelatorio(estado.selecionada);
 
   const curtirBtn = ev.target.closest("[data-curtir]");
   if (curtirBtn) return curtirSugestao(curtirBtn.dataset.curtir);
@@ -1739,6 +2074,10 @@ async function demoExecutar(req) {
     u.senha = req.novaSenha;
     return ok("Senha alterada!");
   }
+  // No demo a senha da IA é "demo-ia"; a real fica só na propriedade SENHA_IA do Code.gs
+  if (/^IA_/.test(req.acao) && nivel !== "LEITURA" && req.senhaIA !== "demo-ia") {
+    return { status: "error", codigo: "SENHA_IA", message: req.senhaIA ? "Senha da IA incorreta." : "Digite a senha da IA." };
+  }
   if (/^EXCLUIR_/.test(req.acao)) {
     if (!req.senha) return { status: "error", message: "Digite a sua senha para confirmar a exclusão." };
     const u = demoBanco.usuarios.find(x => x.Apelido === sessao.apelido);
@@ -1868,12 +2207,12 @@ async function demoExecutar(req) {
       demoBanco.encaminhamentos.find(e => e.ID_Encaminhamento === req.idEncaminhamento).Status = req.status;
       return ok("Encaminhamento atualizado!");
     case "IA_SUGERIR_PAUTAS":
-      return { status: "success", sugestoes: [
+      return { status: "success", ia: { provedor: "Demonstração", modelo: "", segundos: 0 }, sugestoes: [
         { titulo: "Plano de continuidade de TI", descricao: "Definir procedimentos para indisponibilidade de sistemas críticos e responsáveis por cada etapa.", justificativa: "Nenhuma pauta trata de contingência." },
         { titulo: "Capacitação em segurança da informação", descricao: "Programa de treinamento anual para servidores sobre phishing e boas práticas.", justificativa: "Complementa a política de uso de IA." }
       ] };
     case "IA_SUGERIR_ENCAMINHAMENTOS":
-      return { status: "success", recomendacoesAplicadas: demoBanco.recomendacoes.filter(x => grupoAtivo(x) && (!x.ID_Grupo || x.ID_Grupo === grupoDe(ideia() || {}))).length, sintese: "O grupo concorda que é preciso alinhar o tema com a LGPD e sugere uma lista de ferramentas homologadas.", encaminhamentos: [
+      return { status: "success", ia: { provedor: "Demonstração", modelo: "", segundos: 0 }, recomendacoesAplicadas: demoBanco.recomendacoes.filter(x => grupoAtivo(x) && (!x.ID_Grupo || x.ID_Grupo === grupoDe(ideia() || {}))).length, sintese: "O grupo concorda que é preciso alinhar o tema com a LGPD e sugere uma lista de ferramentas homologadas.", encaminhamentos: [
         { acao: "Elaborar minuta da lista de ferramentas de IA homologadas", responsavel: "Bruno", prazoDias: 15 },
         { acao: "Redigir a primeira versão da política no Google Docs", responsavel: "", prazoDias: 30 }
       ] };
