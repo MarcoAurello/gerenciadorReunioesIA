@@ -170,7 +170,34 @@ Basta ter uma das chaves; com as duas, uma cobre a outra.
 
 ## 3. Publicar o frontend
 
-Os três arquivos (`index.html`, `style.css`, `app.js`) são estáticos. Coloque-os em qualquer servidor web, como a intranet, o GitHub Pages ou um servidor interno. Abrir pelo `file://` também funciona na maioria dos navegadores.
+O frontend é estático: `index.html`, `style.css`, `app.js`, `logo.svg` e a pasta `docs/`. O backend continua no Apps Script, com a Planilha, o Drive e o Gemini, e não vai para o servidor.
+
+### No servidor interno, com Docker
+
+A imagem usa o Nginx e contém só os arquivos do frontend. `Code.gs` e o `LEIAME.md` ficam de fora.
+
+```bash
+git clone https://github.com/MarcoAurello/gerenciadorReunioesIA.git
+cd gerenciadorReunioesIA
+docker compose up -d --build
+```
+
+O sistema fica em `http://<servidor>:8088`. Para usar outra porta: `PORTA=80 docker compose up -d --build`, ou crie um arquivo `.env` com `PORTA=80`.
+
+**Para publicar uma versão nova:**
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+Não é preciso Ctrl+F5: o Nginx manda o navegador conferir o HTML, o JS e o CSS a cada acesso, e as imagens ficam guardadas por 1 dia. Se o `Code.gs` mudou, ele continua sendo colado no Apps Script, com uma **Nova versão** publicada, como antes.
+
+**O que o contêiner já traz:**
+- **Saúde:** verificação automática (`docker ps` mostra `healthy`) e reinício automático (`restart: unless-stopped`).
+- **Segurança:** cabeçalhos em `docker/seguranca.conf`. A Content-Security-Policy só libera o próprio servidor, o Apps Script (`script.google.com` e `script.googleusercontent.com`) e o Google Fonts. Se a URL da API mudar de domínio, ajuste o `connect-src` nesse arquivo.
+- **Acesso externo:** o servidor só entrega os arquivos e não precisa de internet. Quem precisa alcançar o Apps Script e o Google Fonts é o **computador de quem usa**, porque o navegador chama esses endereços diretamente. Se a rede bloquear, libere esses domínios.
+- **HTTPS:** se o servidor interno tiver certificado, coloque o contêiner atrás do proxy reverso que já cuida do HTTPS. O contêiner atende em HTTP na porta 80.
 
 ## 4. Testar sem a planilha
 

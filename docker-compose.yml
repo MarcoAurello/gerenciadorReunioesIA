@@ -1,0 +1,9 @@
+services:
+  reunioes:
+    build: .
+    image: sistema-reunioes:latest
+    container_name: sistema-reunioes
+    # Porta do servidor interno → porta 80 do contêiner (mude PORTA no .env ou no comando)
+    ports:
+      - "${PORTA:-8088}:80"
+    restart: unless-stopped
