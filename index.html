@@ -50,17 +50,28 @@
       </div>
       <div class="topo-acoes">
         <span class="sincronizando" id="sincronizando" hidden><span class="mini-spinner" aria-hidden="true"></span>Atualizando…</span>
-        <span class="eu" id="nomeLogado"></span>
-        <button class="btn btn-fantasma btn-sino" id="btnCitacoes" title="Citações para você">
+        <button class="btn btn-fantasma btn-sino" id="btnCitacoes" title="Citações e encaminhamentos para você">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4zM10 20a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
           <span class="badge" id="badgeCitacoes" hidden>0</span>
         </button>
-        <button class="btn btn-fantasma somente-admin" id="btnUsuarios">Usuários</button>
-        <button class="btn btn-fantasma somente-admin" id="btnRecomendacoes" title="Orientações que seguem junto com os comentários na análise da IA">Metadados IA</button>
-        <button class="btn btn-fantasma" id="btnSenha" title="Alterar minha senha">Senha</button>
-        <span id="seloPerfil" class="selo"></span>
-        <button class="btn btn-fantasma" id="btnAtualizar" title="Recarregar dados">Atualizar</button>
-        <button class="btn btn-fantasma" id="btnSair">Sair</button>
+        <!-- Engrenagem: tudo menos o sino fica neste menu -->
+        <div class="menu-config">
+          <button class="btn btn-fantasma btn-engrenagem" id="btnMenu" title="Menu" aria-haspopup="true" aria-expanded="false" aria-controls="menuConfig">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.6 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="menu-lista" id="menuConfig" role="menu" hidden>
+            <div class="menu-cab">
+              <strong id="nomeLogado"></strong>
+              <span id="seloPerfil" class="selo"></span>
+            </div>
+            <button class="menu-item" id="btnFluxo" role="menuitem">Fluxo do app</button>
+            <button class="menu-item somente-admin" id="btnUsuarios" role="menuitem">Usuários</button>
+            <button class="menu-item somente-admin" id="btnRecomendacoes" role="menuitem" title="Orientações que seguem junto com os comentários na análise da IA">Metadados IA</button>
+            <button class="menu-item" id="btnSenha" role="menuitem">Alterar senha</button>
+            <button class="menu-item" id="btnAtualizar" role="menuitem">Atualizar dados</button>
+            <button class="menu-item menu-sair" id="btnSair" role="menuitem">Sair</button>
+          </div>
+        </div>
       </div>
     </header>
 
@@ -112,7 +123,7 @@
         <!-- Detalhe da pauta -->
         <section class="detalhe" id="detalhe" aria-live="polite">
           <div class="vazio">
-            <p>Selecione uma pauta para ver a discussão, os encaminhamentos e o texto oficial.</p>
+            <p>Selecione uma pauta para ver a discussão e os encaminhamentos.</p>
           </div>
         </section>
       </div>
@@ -149,8 +160,6 @@
       <label for="pDescricao">Descrição / contexto</label>
       <textarea id="pDescricao" rows="5" maxlength="5000"></textarea>
 
-      <label for="pLink">Link do texto oficial (Google Docs)</label>
-      <input type="url" id="pLink" placeholder="https://docs.google.com/document/d/...">
 
       <div id="campoStatus" hidden>
         <label for="pStatus">Status</label>
@@ -163,6 +172,54 @@
         <button type="submit" class="btn btn-primario" id="btnSalvarPauta">Salvar</button>
       </div>
     </form>
+  </dialog>
+
+  <!-- ============ MODAL — NOVA ENTREGA DE UM ENCAMINHAMENTO ============ -->
+  <dialog id="modalEntrega" class="modal">
+    <form id="formEntregaModal" method="dialog">
+      <h2>Nova entrega</h2>
+      <p class="modal-sub" id="meEncaminhamento"></p>
+      <label for="meData">Data da entrega *</label>
+      <input type="date" id="meData" required>
+
+      <label for="meResponsavel">Responsável</label>
+      <input type="text" id="meResponsavel" maxlength="120" list="dlUsuarios">
+
+      <label for="meComentarios">Comentários</label>
+      <textarea id="meComentarios" rows="3" maxlength="2000"></textarea>
+
+      <label for="meArquivo">Documento (opcional, até 10 MB)</label>
+      <input type="file" id="meArquivo">
+
+      <p id="erroEntrega" class="msg-erro" hidden></p>
+      <div class="modal-acoes">
+        <button type="button" class="btn btn-fantasma" id="btnCancelarEntregaModal">Cancelar</button>
+        <button type="submit" class="btn btn-primario">Salvar entrega</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ============ MODAL — LISTA DE UM INDICADOR DO TOPO ============ -->
+  <dialog id="modalIndicador" class="modal modal-largo">
+    <h2 id="indicadorTitulo"></h2>
+    <p class="modal-sub" id="indicadorSub"></p>
+    <div id="indicadorLista"></div>
+    <div class="modal-acoes">
+      <button type="button" class="btn btn-fantasma" id="btnFecharIndicador">Fechar</button>
+    </div>
+  </dialog>
+
+  <!-- ============ MODAL — FLUXO DO APP ============ -->
+  <dialog id="modalFluxo" class="modal modal-fluxo">
+    <h2>Fluxo do app</h2>
+    <a href="docs/fluxo-aplicacao.svg" target="_blank" rel="noopener" title="Abrir em tamanho real">
+      <img src="docs/fluxo-aplicacao.svg" alt="Fluxo da aplicação: login e perfis, lista de GTs, painel do GT com indicadores, pauta com sugestões, encaminhamentos e entregas, sino e serviços por trás">
+    </a>
+    <div class="modal-acoes">
+      <a class="btn btn-secundario" href="docs/fluxo-aplicacao.png" download>Baixar imagem</a>
+      <a class="btn btn-secundario" href="docs/fluxo-aplicacao.svg" target="_blank" rel="noopener">Abrir em tamanho real</a>
+      <button type="button" class="btn btn-fantasma" id="btnFecharFluxo">Fechar</button>
+    </div>
   </dialog>
 
   <!-- ============ MODAL IA — SUGERIR PAUTAS ============ -->
@@ -181,7 +238,9 @@
 
   <!-- ============ MODAL CITAÇÕES ============ -->
   <dialog id="modalCitacoes" class="modal modal-largo">
-    <h2>Citações para você</h2>
+    <h2>Para você</h2>
+    <div id="meusEncaminhamentos"></div>
+    <h3 class="modal-secao">Citações</h3>
     <p class="nota-ia" id="citacoesSub"></p>
     <div class="filtro-tipo" id="filtroCitacoes">
       <button class="chip ativo" data-fcit="Pendente">Pendentes</button>

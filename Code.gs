@@ -32,15 +32,14 @@ const ABAS = {
   ideias: {
     nome: "Ideias_GT",
     colunas: ["ID_Ideia", "ID_Grupo", "Data_Criacao", "Titulo", "Descricao", "Status",
-              "Link_Doc_Oficial", "Autor", "Atualizado_Em"],
+              "Autor", "Atualizado_Em"],
     // Outros nomes aceitos no cabeçalho (sem acento, minúsculo, só letras/números)
     apelidos: {
       ID_Ideia: ["id", "codigo"],
       ID_Grupo: ["grupo", "gt", "idgt"],
       Data_Criacao: ["data", "datacadastro", "criadoem", "datahora", "timestamp"],
       Titulo: ["assunto", "tema", "pauta", "ideia"],
-      Descricao: ["contexto", "detalhes", "descricaocontexto"],
-      Link_Doc_Oficial: ["link", "linkdoc", "documento", "docoficial", "textooficial", "linkdocumento", "linkdocs"]
+      Descricao: ["contexto", "detalhes", "descricaocontexto"]
     }
   },
   interacoes: {
@@ -57,12 +56,27 @@ const ABAS = {
   encaminhamentos: {
     nome: "Encaminhamentos_GT",
     colunas: ["ID_Encaminhamento", "ID_Ideia", "Acao", "Responsavel", "Prazo",
-              "Status", "Data_Criacao", "Atualizado_Em"],
+              "Status", "Data_Criacao", "Atualizado_Em", "ID_Entregas"],
     apelidos: {
       ID_Encaminhamento: ["id", "codigo"],
+      // Entregas vinculadas, separadas por vírgula (a coluna antiga ID_Entrega guardava uma só)
+      ID_Entregas: ["identrega", "entregas"],
       ID_Ideia: ["ideia", "idpauta"],
       Acao: ["acaotexto", "encaminhamento", "descricao", "tarefa"],
       Data_Criacao: ["data", "criadoem", "timestamp"]
+    }
+  },
+  // Entregas previstas de cada pauta: só a data é obrigatória
+  entregas: {
+    nome: "Entregas_GT",
+    colunas: ["ID_Entrega", "ID_Ideia", "Data_Entrega", "Responsavel", "Comentarios", "Status",
+              "Anexo_ID", "Anexo_Nome", "Anexo_Tipo", "Anexo_Tamanho", "Anexo_Por", "Anexo_Em",
+              "Autor", "Data_Criacao", "Atualizado_Em"],
+    apelidos: {
+      ID_Entrega: ["id", "codigo"],
+      ID_Ideia: ["ideia", "idpauta"],
+      Data_Entrega: ["data", "dataentrega", "prazo", "entrega"],
+      Comentarios: ["comentario", "observacao", "observacoes", "obs"]
     }
   },
   usuarios: {
@@ -110,6 +124,9 @@ const STATUS_IDEIA = ["Em Debate", "Em Redação", "Aprovada", "Arquivada"];
 const TIPOS_INTERACAO = ["Comentário", "Sugestão"];
 const STATUS_ENCAMINHAMENTO = ["Pendente", "Em Andamento", "Concluído", "Cancelado"];
 const STATUS_CITACAO = ["Pendente", "Encaminhada", "Resolvida"];
+const STATUS_ENTREGA = ["Aguardando análise", "Aprovado"];
+// Status da versão anterior das entregas, lidos como os atuais
+const STATUS_ENTREGA_ANTIGO = { "Aguardando entrega": "Aguardando análise", "Em análise": "Aguardando análise", "Concluído": "Aprovado" };
 
 /* ------------------------------------------------------------------ */
 /* Entrada                                                             */
@@ -135,6 +152,8 @@ function doPost(e) {
     }
     if (acao === "LISTAR") return listar(sessao);
     if (acao === "DETALHE_IDEIA") return detalheIdeia(req);
+    // Baixar o documento de uma entrega: qualquer usuário logado, inclusive o perfil Leitura
+    if (acao === "BAIXAR_ANEXO") return baixarAnexo(req);
     if (acao === "ALTERAR_SENHA") return comLock(function () { return alterarSenha(req, sessao); });
 
     // Toda exclusão exige a senha de quem está logado
@@ -177,6 +196,10 @@ function doPost(e) {
       ADD_INTERACAO: addInteracao,
       ADD_ENCAMINHAMENTO: addEncaminhamento,
       ATUALIZAR_ENCAMINHAMENTO: atualizarEncaminhamento,
+      ADD_ENTREGA: addEntrega,
+      EDITAR_ENTREGA: editarEntrega,
+      ANEXAR_ENTREGA: anexarEntrega,
+      EXCLUIR_ANEXO_ENTREGA: excluirAnexoEntrega,
       ATUALIZAR_CITACAO: atualizarCitacao,
       CRIAR_USUARIO: criarUsuario,
       EDITAR_USUARIO: editarUsuario,
@@ -194,6 +217,10 @@ function doPost(e) {
     }
     if ((acao === "CRIAR_GRUPO" || acao === "EDITAR_GRUPO") && sessao.nivel !== "ADMIN") {
       return erro("Apenas administradores gerenciam os grupos de trabalho.");
+    }
+    // Aprovar a entrega (mudar o status) é do administrador
+    if (acao === "EDITAR_ENTREGA" && req.status !== undefined && sessao.nivel !== "ADMIN") {
+      return erro("Apenas administradores mudam o status da entrega.");
     }
     if (/_RECOMENDACAO$/.test(acao) && sessao.nivel !== "ADMIN") {
       return erro("Apenas administradores gerenciam os metadados da IA.");
@@ -237,7 +264,7 @@ function montarResumo(sessao) {
 
   const cont = {};
   const de = function (id) {
-    return cont[id] || (cont[id] = { sug: 0, com: 0, enc: 0, abertos: 0, atrasados: 0 });
+    return cont[id] || (cont[id] = { sug: 0, com: 0, enc: 0, abertos: 0, atrasados: 0, concluidos: 0, ent: 0, entAprovadas: 0 });
   };
   lerAba(ss, ABAS.interacoes).forEach(function (i) {
     const c = de(String(i.ID_Ideia));
@@ -250,11 +277,19 @@ function montarResumo(sessao) {
       c.abertos++;
       const prazo = String(e.Prazo || "").slice(0, 10);
       if (/^\d{4}-\d{2}-\d{2}$/.test(prazo) && prazo < hoje) c.atrasados++;
+    } else if (e.Status === "Concluído") {
+      c.concluidos++;
     }
   });
 
+  lerAba(ss, ABAS.entregas).forEach(function (e) {
+    const c = de(String(e.ID_Ideia));
+    c.ent++;
+    if (statusEntrega(e) === "Aprovado") c.entAprovadas++;
+  });
+
   const ideias = lerAba(ss, ABAS.ideias).map(function (i) {
-    const c = cont[String(i.ID_Ideia)] || { sug: 0, com: 0, enc: 0, abertos: 0, atrasados: 0 };
+    const c = cont[String(i.ID_Ideia)] || { sug: 0, com: 0, enc: 0, abertos: 0, atrasados: 0, ent: 0 };
     const desc = String(i.Descricao || "");
     return Object.assign({}, i, {
       ID_Grupo: grupoDaIdeia(i),
@@ -264,13 +299,26 @@ function montarResumo(sessao) {
       Qtd_Comentarios: c.com,
       Qtd_Encaminhamentos: c.enc,
       Qtd_Abertos: c.abertos,
-      Qtd_Atrasados: c.atrasados
+      Qtd_Atrasados: c.atrasados,
+      Qtd_Concluidos: c.concluidos || 0,
+      Qtd_Entregas: c.ent || 0,
+      Qtd_Entregas_Aprovadas: c.entAprovadas || 0
     });
   });
 
   const meu = String(sessao.apelido || "").toLowerCase();
   const citacoes = meu && meu !== "admin"
     ? lerAba(ss, ABAS.citacoes).filter(function (c) { return String(c.Apelido).toLowerCase() === meu; })
+    : [];
+  // Encaminhamentos em aberto em que o responsável sou eu (pelo nome ou pelo @apelido), em todos os GTs
+  const meusNomes = meu && meu !== "admin" ? [normalizar(sessao.nome), normalizar(meu)] : [];
+  const meusEncaminhamentos = meusNomes.length
+    ? lerAba(ss, ABAS.encaminhamentos).filter(function (e) {
+        const resp = normalizar(e.Responsavel);
+        return resp && meusNomes.indexOf(resp) >= 0 && (e.Status === "Pendente" || e.Status === "Em Andamento");
+      }).map(function (e) {
+        return { ID_Encaminhamento: e.ID_Encaminhamento, ID_Ideia: e.ID_Ideia, Acao: e.Acao, Prazo: e.Prazo, Status: e.Status };
+      })
     : [];
 
   return {
@@ -292,14 +340,15 @@ function montarResumo(sessao) {
         return pub;
       }),
       citacoes: citacoes,
+      meusEncaminhamentos: meusEncaminhamentos,
       // Só o administrador cadastra e vê as recomendações da IA
       recomendacoes: nivel === "ADMIN" ? lerAba(ss, ABAS.recomendacoes) : []
     },
-    listas: { STATUS_IDEIA, TIPOS_INTERACAO, STATUS_ENCAMINHAMENTO, STATUS_CITACAO, PERFIS: Object.keys(PERFIS) }
+    listas: { STATUS_IDEIA, TIPOS_INTERACAO, STATUS_ENCAMINHAMENTO, STATUS_CITACAO, STATUS_ENTREGA, PERFIS: Object.keys(PERFIS) }
   };
 }
 
-/** Conteúdo completo de uma pauta: descrição inteira, sugestões/comentários e encaminhamentos. */
+/** Conteúdo completo de uma pauta: descrição inteira, sugestões/comentários, encaminhamentos e entregas. */
 function montarDetalhe(idIdeia) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const id = String(idIdeia);
@@ -311,7 +360,14 @@ function montarDetalhe(idIdeia) {
     interacoes: lerAba(ss, ABAS.interacoes).filter(function (i) { return String(i.ID_Ideia) === id; }),
     curtidas: lerAba(ss, ABAS.curtidas).filter(function (c) { return String(c.ID_Ideia) === id; })
       .map(function (c) { return { ID_Interacao: c.ID_Interacao, Apelido: c.Apelido, Nome: c.Nome }; }),
-    encaminhamentos: lerAba(ss, ABAS.encaminhamentos).filter(function (e) { return String(e.ID_Ideia) === id; })
+    encaminhamentos: lerAba(ss, ABAS.encaminhamentos).filter(function (e) { return String(e.ID_Ideia) === id; }),
+    // O ID do arquivo no Drive não sai do servidor: o download passa por baixarAnexo()
+    entregas: lerAba(ss, ABAS.entregas).filter(function (e) { return String(e.ID_Ideia) === id; })
+      .map(function (e) {
+        const pub = Object.assign({}, e, { Status: statusEntrega(e) });
+        delete pub.Anexo_ID;
+        return pub;
+      })
   };
 }
 
@@ -337,8 +393,6 @@ function comDadosAtualizados(saida, req, sessao) {
 function criarIdeia(req) {
   const titulo = texto(req.titulo, 200);
   if (!titulo) return erro("Informe o título da pauta.");
-  const link = linkDoc(req.linkDoc);
-  if (link === null) return erro("O link do texto oficial deve ser um endereço do Google Docs/Drive.");
   const idGrupo = String(req.idGrupo || GRUPO_PADRAO.ID_Grupo);
   const grupo = lerGrupos(SpreadsheetApp.getActiveSpreadsheet()).filter(function (g) { return String(g.ID_Grupo) === idGrupo; })[0];
   if (!grupo || !grupoAtivo(grupo)) return erro("Grupo de trabalho não encontrado ou desativado.");
@@ -352,7 +406,6 @@ function criarIdeia(req) {
     Titulo: titulo,
     Descricao: texto(req.descricao, 5000),
     Status: "Em Debate",
-    Link_Doc_Oficial: link,
     Autor: texto(req.autor, 120),
     Atualizado_Em: agora
   });
@@ -471,11 +524,6 @@ function editarIdeia(req) {
   if (req.status !== undefined) {
     if (STATUS_IDEIA.indexOf(req.status) < 0) return erro("Status inválido.");
     campos.Status = req.status;
-  }
-  if (req.linkDoc !== undefined) {
-    const link = linkDoc(req.linkDoc);
-    if (link === null) return erro("O link do texto oficial deve ser um endereço do Google Docs/Drive.");
-    campos.Link_Doc_Oficial = link;
   }
   if (!atualizar(ABAS.ideias, "ID_Ideia", req.idIdeia, campos)) return erro("Pauta não encontrada.");
   return respostaJSON({ status: "success", message: "Pauta atualizada!" });
@@ -846,6 +894,9 @@ function addEncaminhamento(req) {
   const responsavel = texto(req.responsavel, 120);
   if (!acao || !responsavel) return erro("Informe a ação e o responsável.");
 
+  const idEntregas = entregasValidas(req.idEntregas, req.idIdeia);
+  if (idEntregas === null) return erro("Entrega não encontrada nesta pauta.");
+
   const agora = new Date();
   inserir(ABAS.encaminhamentos, {
     ID_Encaminhamento: "ENC-" + agora.getTime(),
@@ -855,7 +906,8 @@ function addEncaminhamento(req) {
     Prazo: dataISO(req.prazo),
     Status: "Pendente",
     Data_Criacao: agora,
-    Atualizado_Em: agora
+    Atualizado_Em: agora,
+    ID_Entregas: idEntregas
   });
   // Encaminhamento criado a partir de uma citação: a citação fica como "Encaminhada"
   if (req.idCitacao) {
@@ -864,14 +916,191 @@ function addEncaminhamento(req) {
   return respostaJSON({ status: "success", message: "Encaminhamento registrado!" });
 }
 
+/** Muda o status e/ou as entregas vinculadas ao encaminhamento (lista vazia desvincula todas). */
 function atualizarEncaminhamento(req) {
-  if (STATUS_ENCAMINHAMENTO.indexOf(req.status) < 0) return erro("Status inválido.");
-  const ok = atualizar(ABAS.encaminhamentos, "ID_Encaminhamento", req.idEncaminhamento, {
-    Status: req.status,
-    Atualizado_Em: new Date()
-  });
+  const campos = { Atualizado_Em: new Date() };
+  if (req.status !== undefined) {
+    if (STATUS_ENCAMINHAMENTO.indexOf(req.status) < 0) return erro("Status inválido.");
+    campos.Status = req.status;
+  }
+  if (req.idEntregas !== undefined) {
+    const idEntregas = entregasValidas(req.idEntregas, req.idIdeia);
+    if (idEntregas === null) return erro("Entrega não encontrada nesta pauta.");
+    campos.ID_Entregas = idEntregas;
+  }
+  const ok = atualizar(ABAS.encaminhamentos, "ID_Encaminhamento", req.idEncaminhamento, campos);
   if (!ok) return erro("Encaminhamento não encontrado.");
   return respostaJSON({ status: "success", message: "Encaminhamento atualizado!" });
+}
+
+/** Lista de IDs (array ou texto separado por vírgula) → "ENT-1,ENT-2"; null se alguma não for da pauta. */
+function entregasValidas(lista, idIdeia) {
+  const ids = (Array.isArray(lista) ? lista : String(lista || "").split(","))
+    .map(function (x) { return String(x).trim(); })
+    .filter(function (x, i, todos) { return x && todos.indexOf(x) === i; });
+  const daPauta = lerAba(SpreadsheetApp.getActiveSpreadsheet(), ABAS.entregas)
+    .filter(function (e) { return String(e.ID_Ideia) === String(idIdeia); })
+    .map(function (e) { return String(e.ID_Entrega); });
+  const invalida = ids.some(function (x) { return daPauta.indexOf(x) < 0; });
+  return invalida ? null : ids.join(",");
+}
+
+function addEntrega(req) {
+  if (!existe(ABAS.ideias, "ID_Ideia", req.idIdeia)) return erro("Pauta não encontrada.");
+  const data = dataISO(req.dataEntrega);
+  if (!data) return erro("Informe a data da entrega.");
+
+  const agora = new Date();
+  inserir(ABAS.entregas, {
+    ID_Entrega: "ENT-" + agora.getTime(),
+    ID_Ideia: req.idIdeia,
+    Data_Entrega: data,
+    Responsavel: texto(req.responsavel, 120),
+    Comentarios: texto(req.comentarios, 2000),
+    Status: STATUS_ENTREGA[0],
+    Autor: texto(req.autor, 120),
+    Data_Criacao: agora,
+    Atualizado_Em: agora
+  });
+  const idEntrega = "ENT-" + agora.getTime();
+  if (req.idEncaminhamentos !== undefined) vincularEntrega(idEntrega, req.idIdeia, req.idEncaminhamentos);
+  // "idEntrega", e não "id": "id" é lido por comDadosAtualizados() como ID da pauta
+  return respostaJSON({ status: "success", message: "Entrega registrada!", idEntrega: idEntrega });
+}
+
+/** Altera só os campos enviados: o formulário manda data, responsável e comentários; a tabela, só o status. */
+function editarEntrega(req) {
+  const campos = { Atualizado_Em: new Date() };
+  if (req.dataEntrega !== undefined) {
+    campos.Data_Entrega = dataISO(req.dataEntrega);
+    if (!campos.Data_Entrega) return erro("Informe a data da entrega.");
+  }
+  if (req.responsavel !== undefined) campos.Responsavel = texto(req.responsavel, 120);
+  if (req.comentarios !== undefined) campos.Comentarios = texto(req.comentarios, 2000);
+  if (req.status !== undefined) {
+    if (STATUS_ENTREGA.indexOf(req.status) < 0) return erro("Status inválido.");
+    campos.Status = req.status;
+  }
+  const ok = atualizar(ABAS.entregas, "ID_Entrega", req.idEntrega, campos);
+  if (!ok) return erro("Entrega não encontrada.");
+  if (req.idEncaminhamentos !== undefined) vincularEntrega(req.idEntrega, req.idIdeia, req.idEncaminhamentos);
+  return respostaJSON({ status: "success", message: "Entrega atualizada!" });
+}
+
+/** Deixa a entrega vinculada exatamente aos encaminhamentos da lista (só os da mesma pauta). */
+function vincularEntrega(idEntrega, idIdeia, idsEncaminhamentos) {
+  const alvo = (Array.isArray(idsEncaminhamentos) ? idsEncaminhamentos : []).map(String);
+  const id = String(idEntrega);
+  lerAba(SpreadsheetApp.getActiveSpreadsheet(), ABAS.encaminhamentos)
+    .filter(function (e) { return String(e.ID_Ideia) === String(idIdeia); })
+    .forEach(function (e) {
+      const atuais = String(e.ID_Entregas || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean);
+      const tem = atuais.indexOf(id) >= 0;
+      const quer = alvo.indexOf(String(e.ID_Encaminhamento)) >= 0;
+      if (tem === quer) return;
+      const nova = quer ? atuais.concat(id) : atuais.filter(function (x) { return x !== id; });
+      atualizar(ABAS.encaminhamentos, "ID_Encaminhamento", e.ID_Encaminhamento, { ID_Entregas: nova.join(","), Atualizado_Em: new Date() });
+    });
+}
+
+// Entregas sem status (ou com um status antigo) contam como aguardando análise
+const statusEntrega = function (e) {
+  const s = STATUS_ENTREGA_ANTIGO[e.Status] || e.Status;
+  return STATUS_ENTREGA.indexOf(s) >= 0 ? s : STATUS_ENTREGA[0];
+};
+
+/* ------------------------------------------------------------------ */
+/* Documento anexo da entrega — guardado no Google Drive do dono do    */
+/* script, numa pasta própria (propriedade PASTA_ANEXOS). O arquivo    */
+/* não é compartilhado: o download passa pela API, com login.          */
+/* ------------------------------------------------------------------ */
+
+const ANEXO_MAX_BYTES = 10 * 1024 * 1024;
+const ANEXO_EXTENSOES = ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp",
+                         "txt", "csv", "rtf", "png", "jpg", "jpeg", "zip"];
+
+function lerEntrega(idEntrega) {
+  return lerAba(SpreadsheetApp.getActiveSpreadsheet(), ABAS.entregas)
+    .filter(function (e) { return String(e.ID_Entrega) === String(idEntrega); })[0];
+}
+
+function pastaAnexos() {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty("PASTA_ANEXOS");
+  if (id) {
+    try {
+      const pasta = DriveApp.getFolderById(id);
+      if (!pasta.isTrashed()) return pasta;
+    } catch (e) { /* pasta apagada ou sem acesso: cria outra */ }
+  }
+  const nova = DriveApp.createFolder("Anexos - Sistema de Apoio a Reuniões");
+  props.setProperty("PASTA_ANEXOS", nova.getId());
+  return nova;
+}
+
+/**
+ * Execute uma vez pelo editor depois de colar este código: o Google pede a
+ * autorização de acesso ao Drive e a pasta dos anexos é criada.
+ */
+function autorizarDrive() {
+  const pasta = pastaAnexos();
+  Logger.log("Drive autorizado. Pasta dos anexos: " + pasta.getName() + " — " + pasta.getUrl());
+}
+
+function anexarEntrega(req, sessao) {
+  const entrega = lerEntrega(req.idEntrega);
+  if (!entrega) return erro("Entrega não encontrada.");
+  if (entrega.Anexo_ID) return erro("Esta entrega já tem um documento. Exclua o atual antes de anexar outro.");
+
+  const nome = texto(req.nome, 200).replace(/[\\/:*?"<>|]+/g, "_");
+  const ext = (nome.match(/\.([a-z0-9]+)$/i) || [])[1];
+  if (!nome || !ext || ANEXO_EXTENSOES.indexOf(ext.toLowerCase()) < 0) {
+    return erro("Tipo de arquivo não aceito. Envie: " + ANEXO_EXTENSOES.join(", ") + ".");
+  }
+  let bytes;
+  try { bytes = Utilities.base64Decode(String(req.conteudo || "")); } catch (e) { return erro("Arquivo inválido."); }
+  if (!bytes.length) return erro("O arquivo está vazio.");
+  if (bytes.length > ANEXO_MAX_BYTES) return erro("O arquivo passa de 10 MB.");
+
+  const tipo = texto(req.tipo, 120) || "application/octet-stream";
+  const arquivo = pastaAnexos().createFile(Utilities.newBlob(bytes, tipo, entrega.ID_Entrega + " - " + nome));
+  const agora = new Date();
+  atualizar(ABAS.entregas, "ID_Entrega", entrega.ID_Entrega, {
+    Anexo_ID: arquivo.getId(),
+    Anexo_Nome: nome,
+    Anexo_Tipo: tipo,
+    Anexo_Tamanho: bytes.length,
+    Anexo_Por: texto(sessao.nome, 120),
+    Anexo_Em: agora,
+    Atualizado_Em: agora
+  });
+  return respostaJSON({ status: "success", message: "Documento anexado!" });
+}
+
+/** A senha já foi conferida em doPost (toda ação EXCLUIR_ pede a senha). O arquivo vai para a lixeira do Drive. */
+function excluirAnexoEntrega(req) {
+  const entrega = lerEntrega(req.idEntrega);
+  if (!entrega) return erro("Entrega não encontrada.");
+  if (!entrega.Anexo_ID) return erro("Esta entrega não tem documento anexado.");
+  try { DriveApp.getFileById(entrega.Anexo_ID).setTrashed(true); } catch (e) { /* já não existia no Drive */ }
+  atualizar(ABAS.entregas, "ID_Entrega", entrega.ID_Entrega, {
+    Anexo_ID: "", Anexo_Nome: "", Anexo_Tipo: "", Anexo_Tamanho: "", Anexo_Por: "", Anexo_Em: "",
+    Atualizado_Em: new Date()
+  });
+  return respostaJSON({ status: "success", message: "Documento excluído." });
+}
+
+function baixarAnexo(req) {
+  const entrega = lerEntrega(req.idEntrega);
+  if (!entrega || !entrega.Anexo_ID) return erro("Documento não encontrado.");
+  let blob;
+  try { blob = DriveApp.getFileById(entrega.Anexo_ID).getBlob(); } catch (e) { return erro("O documento não foi encontrado no Drive."); }
+  return respostaJSON({
+    status: "success",
+    nome: entrega.Anexo_Nome,
+    tipo: entrega.Anexo_Tipo || blob.getContentType(),
+    conteudo: Utilities.base64Encode(blob.getBytes())
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -1539,13 +1768,6 @@ function diagnosticar() {
 
 function texto(valor, max) {
   return String(valor === undefined || valor === null ? "" : valor).trim().slice(0, max);
-}
-
-/** Retorna "" para vazio, o link se for Google Docs/Drive, ou null se inválido. */
-function linkDoc(valor) {
-  const link = texto(valor, 500);
-  if (!link) return "";
-  return /^https:\/\/(docs|drive)\.google\.com\//.test(link) ? link : null;
 }
 
 /** Mantém a data como texto yyyy-mm-dd para o Sheets não converter fuso. */

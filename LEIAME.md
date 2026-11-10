@@ -10,6 +10,7 @@ Frontend em HTML, CSS e JS puros. O backend é um Google Apps Script ligado a um
 | `style.css`  | Visual (paleta bordô) |
 | `app.js`     | Lógica do frontend, chamadas à API e modo demonstração |
 | `Code.gs`    | Backend no Apps Script (colar no editor da planilha) |
+| `docs/`      | Imagem do fluxo da aplicação (SVG e PNG), aberta pelo menu da engrenagem em "Fluxo do app" |
 
 ---
 
@@ -33,11 +34,11 @@ flowchart TD
     P --> D[Detalhe da pauta]
     D --> D1[Sugestões, cada uma com seus comentários]
     D --> D2[Encaminhamentos: ação, responsável, prazo, status]
-    D --> D3[Texto oficial: link + prévia do Google Docs]
+    D2 --> D3[Entregas: data, status, documento]
 
     E -.escreve.-> D1
     E -.escreve / IA sugere.-> D2
-    E -.vincula link.-> D3
+    E -.cadastra.-> D3
     E -.muda status.-> S[Em Debate → Em Redação → Aprovada / Arquivada]
 ```
 
@@ -55,7 +56,17 @@ Só o usuário **@marco.nunes** vê a lixeira em cada sugestão e em cada coment
 - **Encaminhamento:** na aba **Encaminhamentos**, use a caixa de seleção da coluna **Status**.
 - **Citação:** no sino, use **Criar encaminhamento** ou **Marcar como resolvida**.
 
-**Ciclo da pauta:** `Em Debate` → `Em Redação` (o texto oficial está sendo escrito no Google Docs) → `Aprovada` ou `Arquivada`.
+**Encaminhamentos e entregas:** a pauta é discutida, o gestor cria o encaminhamento e depois as entregas são registradas nele. Não existe uma aba de entregas: na aba **Encaminhamentos**, a coluna **Entregas** tem um botão com a contagem ("0 entregas", "1 entrega"...). Ao clicar, a área da lista de encaminhamentos passa a mostrar as entregas daquele encaminhamento: em cima, **← Voltar aos encaminhamentos** e **+ Nova entrega** (que abre o popup de cadastro); embaixo, a lista das entregas, com status e documento. Só a **data** é obrigatória; responsável, comentários e documento são opcionais. A entrega nova já nasce vinculada ao encaminhamento.
+
+**Indicadores:** o topo do painel do GT mostra pautas ativas, pautas em debate, encaminhamentos em aberto, atrasados e concluídos, entregas aguardando análise e entregas aprovadas. **Cada indicador é clicável** e abre a lista do que ele conta, organizada como pauta → encaminhamento → entregas. Nos indicadores de pauta, a lista mostra as pautas com o número de sugestões, encaminhamentos e entregas. Clicar no nome da pauta abre a pauta. A lista busca os dados atuais no servidor, só das pautas que têm algo a contar. Os cartões da lista de GTs mostram as entregas a analisar.
+
+Na planilha, as entregas ficam na aba `Entregas_GT`, e o vínculo fica na coluna `ID_Entregas` de `Encaminhamentos_GT`, com os IDs separados por vírgula. A coluna `ID_Entrega` da versão anterior é lida como `ID_Entregas`, então nada se perde. As duas são criadas sozinhas na primeira gravação.
+
+**Status da entrega:** `Aguardando análise` → `Aprovado`. **Só o administrador muda o status**, pela caixa de seleção ao lado da data, na lista de entregas do encaminhamento. O servidor recusa a mudança vinda de outro perfil. Toda entrega nova começa como "Aguardando análise". Entregas gravadas com os status antigos aparecem assim: "Aguardando entrega" e "Em análise" como "Aguardando análise", e "Concluído" como "Aprovado".
+
+**Documento da entrega:** cada entrega aceita **um** documento (até 10 MB; pdf, doc/docx, xls/xlsx, ppt/pptx, odt/ods/odp, txt, csv, rtf, png, jpg ou zip). Para trocar, exclua o atual e anexe outro. A exclusão pede a senha de quem está logado. O arquivo fica no Google Drive do dono do script, na pasta "Anexos - Sistema de Apoio a Reuniões", cujo ID fica guardado na propriedade `PASTA_ANEXOS`. A pasta é criada sozinha e **não é compartilhada**. O download passa pelo sistema, então só quem tem login baixa. Um documento excluído vai para a lixeira do Drive, de onde pode ser recuperado por 30 dias. **Depois de colar o Code.gs, execute a função `autorizarDrive` no editor para autorizar o acesso ao Drive.**
+
+**Ciclo da pauta:** `Em Debate` → `Em Redação` → `Aprovada` ou `Arquivada`.
 
 **Ciclo do encaminhamento:** `Pendente` → `Em Andamento` → `Concluído` ou `Cancelado`. Um encaminhamento em aberto com prazo vencido aparece como **atrasado** em vermelho.
 
@@ -78,6 +89,7 @@ Só o usuário **@marco.nunes** vê a lixeira em cada sugestão e em cada coment
 
 **Citações (@):**
 - Ao digitar `@` num comentário, aparece uma lista de usuários para completar (setas e Enter, ou clique). Cada `@apelido` de usuário ativo gera uma **citação**.
+- **Sino amarelo:** quando há encaminhamento pendente (Pendente ou Em Andamento) em que você é o responsável, o sino fica amarelo. O responsável é reconhecido pelo nome completo ou pelo @apelido, sem diferença de acento ou maiúscula. O número do sino soma esses encaminhamentos e as citações pendentes. Ao abrir o sino, os encaminhamentos aparecem primeiro, com o prazo (os atrasados em vermelho) e o botão **Ver na pauta**. Quando o encaminhamento é concluído ou cancelado, ele sai do sino.
 - A pessoa citada vê o **sino** com o número de citações pendentes. Em cada citação ela pode:
   - **Ver na pauta**: abre o comentário.
   - **Criar encaminhamento**: abre o formulário já preenchido com o nome dela, e a citação passa a `Encaminhada`.
@@ -189,7 +201,6 @@ Essas senhas valem só no modo demo, que roda inteiro no navegador. Elas não d�
 - O login e as gravações já devolvem os dados atualizados, sem uma segunda requisição. Ao recarregar a página, a última tela carregada aparece na hora a partir de uma cópia na aba do navegador, que é apagada ao sair ou fechar a aba.
 - Numa planilha simulada com 300 pautas, 15 mil sugestões e comentários e 4 mil encaminhamentos, a carga inicial caiu de cerca de 6 MB para 190 KB, e o processamento ficou cerca de 5 vezes mais rápido. Abrir uma pauta trafega cerca de 20 KB.
 - Os textos digitados são escapados antes de aparecer na tela, o que evita injeção de HTML.
-- O link do texto oficial só é aceito se for `docs.google.com` ou `drive.google.com`. Para a prévia aparecer dentro do sistema, o documento precisa estar compartilhado com quem vai ver.
 - A chave do Gemini fica só no Apps Script e nunca chega ao navegador.
 - E-mail e perfil dos usuários só chegam ao navegador de administradores.
 - Só a própria pessoa citada (ou um administrador) pode marcar a citação como resolvida.

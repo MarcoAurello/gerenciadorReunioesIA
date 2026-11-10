@@ -14,7 +14,7 @@ const estado = {
   token: "",
   usuario: null,         // { nome, apelido, nivel } de quem está logado
   nivel: "",
-  detalhes: {},          // conteúdo de cada pauta já aberta: { ideia, interacoes, encaminhamentos }
+  detalhes: {},          // conteúdo de cada pauta já aberta: { ideia, interacoes, encaminhamentos, entregas }
   ultimaResposta: null,  // último resumo recebido (guardado para abrir rápido ao recarregar)
   grupo: null,           // ID do GT aberto; null = tela com a lista de GTs
   dados: { ideias: [], interacoes: [], encaminhamentos: [], usuarios: [], citacoes: [], recomendacoes: [] },
@@ -22,13 +22,16 @@ const estado = {
     STATUS_IDEIA: ["Em Debate", "Em Redação", "Aprovada", "Arquivada"],
     TIPOS_INTERACAO: ["Comentário", "Sugestão"],
     STATUS_ENCAMINHAMENTO: ["Pendente", "Em Andamento", "Concluído", "Cancelado"],
-    STATUS_CITACAO: ["Pendente", "Encaminhada", "Resolvida"]
+    STATUS_CITACAO: ["Pendente", "Encaminhada", "Resolvida"],
+    STATUS_ENTREGA: ["Aguardando análise", "Aprovado"]
   },
   selecionada: null,
   aba: "discussao",
   filtroTipo: "",
   filtroCitacoes: "Pendente",
   citacaoOrigem: null,   // citação que deu origem ao encaminhamento em edição
+  entregaAnexando: null, // ID da entrega que vai receber o arquivo escolhido
+  encAberto: null,       // encaminhamento cujas entregas estão abertas na aba Encaminhamentos
   iaEncaminhamentos: {}, // sugestões da IA por pauta, mantidas entre recargas
   sugestoesAbertas: new Set() // sugestões expandidas no acordeom (sobrevive ao redesenho)
 };
@@ -65,12 +68,17 @@ let timerLoading = null;
 // Primeira mensagem do loading: o que está acontecendo de fato
 const LOADING_ACAO = {
   LOGIN: "Conferindo usuário e senha...",
-  LISTAR: "Buscando as pautas na planilha...",
+  LISTAR: "Buscando as pautas...",
   CRIAR_IDEIA: "Salvando a pauta...",
   EDITAR_IDEIA: "Salvando as alterações da pauta...",
-  ADD_INTERACAO: "Registrando na planilha...",
+  ADD_INTERACAO: "Registrando...",
   ADD_ENCAMINHAMENTO: "Registrando o encaminhamento...",
   ATUALIZAR_ENCAMINHAMENTO: "Atualizando o encaminhamento...",
+  ADD_ENTREGA: "Registrando a entrega...",
+  EDITAR_ENTREGA: "Atualizando a entrega...",
+  ANEXAR_ENTREGA: "Enviando o documento...",
+  EXCLUIR_ANEXO_ENTREGA: "Conferindo a senha e excluindo o documento...",
+  BAIXAR_ANEXO: "Baixando o documento...",
   ATUALIZAR_CITACAO: "Atualizando a citação...",
   CRIAR_USUARIO: "Cadastrando o usuário...",
   EDITAR_USUARIO: "Atualizando o usuário...",
@@ -88,7 +96,7 @@ const LOADING_ACAO = {
 // Mensagens que vão se revezando enquanto a resposta não chega
 const LOADING_SEGUINTES = {
   IA: ["A IA está lendo a discussão...", "Analisando sugestões e comentários...", "Montando a síntese...", "Escrevendo as sugestões...", "A IA às vezes leva até um minuto. Só mais um momento..."],
-  PADRAO: ["Falando com a planilha do Google...", "Estamos trabalhando nisso...", "Quase lá...", "Só mais um momento...", "A planilha está demorando um pouco mais que o normal, mas segue trabalhando..."]
+  PADRAO: ["Conectando aos dados...", "Estamos trabalhando nisso...", "Quase lá...", "Só mais um momento...", "A conexão aos dados está demorando um pouco mais que o normal, mas segue trabalhando..."]
 };
 const LOADING_INTERVALO = 3500;
 let loadingRelogio = null;
@@ -162,12 +170,12 @@ async function api(acao, dados = {}, { silencioso = false } = {}) {
     try { json = JSON.parse(corpo); } catch (e) { json = null; }
     // Resposta vazia/HTML ou mensagem do script antigo = Code.gs novo não implantado
     if (!json || json.message === "Senha de escrita incorreta!" || (acao === "LOGIN" && json.status === "success" && !json.token)) {
-      return { status: "error", message: "A planilha respondeu, mas ainda está com o código antigo. No Apps Script, cole o Code.gs novo e publique uma Nova versão em Implantar → Gerenciar implantações." };
+      return { status: "error", message: "O servidor respondeu, mas ainda está com o código antigo. No Apps Script, cole o Code.gs novo e publique uma Nova versão em Implantar → Gerenciar implantações." };
     }
     return json;
   } catch (err) {
     console.error(err);
-    return { status: "error", message: "Falha de conexão com a planilha. Verifique a URL e a implantação do Apps Script." };
+    return { status: "error", message: "Falha ao conectar aos dados. Verifique a URL e a implantação do Apps Script." };
   } finally {
     if (silencioso) marcarSincronizando(-1); else esconderLoading();
   }
@@ -244,6 +252,7 @@ async function carregarDetalhe(id) {
 
 /** Abre a pauta: mostra o que já tem na hora e atualiza em segundo plano. */
 function selecionarPauta(id) {
+  if (String(id) !== String(estado.selecionada)) estado.encAberto = null;
   estado.selecionada = String(id);
   renderizarLista();
   renderizarDetalhe();
@@ -279,7 +288,9 @@ async function abrirApp(resposta, silencioso = false) {
   renderizarTudo();
   if (primeiraVez) {
     const pend = minhasCitacoes().filter(c => c.Status === "Pendente").length;
-    if (pend) aviso(`Você tem ${pend} citação(ões) pendente(s). Clique no sino para ver.`);
+    const encs = meusEncaminhamentos().length;
+    const partes = [encs ? plural(encs, "encaminhamento pendente", "encaminhamentos pendentes") : "", pend ? `${pend} citação(ões) pendente(s)` : ""].filter(Boolean);
+    if (partes.length) aviso(`Você tem ${partes.join(" e ")}. Clique no sino para ver.`);
   }
   return null;
 }
@@ -367,7 +378,7 @@ function montarDetalhesLegados(d) {
     const id = String(i.ID_Ideia);
     const ints = d.interacoes.filter(x => String(x.ID_Ideia) === id);
     const encs = (d.encaminhamentos || []).filter(x => String(x.ID_Ideia) === id);
-    estado.detalhes[id] = { idIdeia: id, ideia: i, interacoes: ints, encaminhamentos: encs };
+    estado.detalhes[id] = { idIdeia: id, ideia: i, interacoes: ints, encaminhamentos: encs, entregas: [] };
     i.Qtd_Sugestoes = ints.filter(x => x.Tipo === "Sugestão" && !x.ID_Pai).length;
     i.Qtd_Comentarios = ints.length - i.Qtd_Sugestoes;
     i.Qtd_Encaminhamentos = encs.length;
@@ -481,7 +492,8 @@ const atrasado = e => emAberto(e) && prazoISO(e.Prazo) && prazoISO(e.Prazo) < ho
 
 const CLASSE_STATUS = {
   "Em Debate": "st-debate", "Em Redação": "st-redacao", "Aprovada": "st-aprovada", "Arquivada": "st-arquivada",
-  "Pendente": "st-pendente", "Em Andamento": "st-andamento", "Concluído": "st-concluido", "Cancelado": "st-cancelado"
+  "Pendente": "st-pendente", "Em Andamento": "st-andamento", "Concluído": "st-concluido", "Cancelado": "st-cancelado",
+  "Aguardando análise": "st-pendente", "Aprovado": "st-aprovada"
 };
 const seloStatus = s => `<span class="selo ${CLASSE_STATUS[s] || ""}">${esc(s)}</span>`;
 
@@ -527,11 +539,6 @@ const citaEu = t => {
   return !!eu && new RegExp(`@${eu.Apelido.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![a-z0-9_-])`, "i").test(String(t));
 };
 
-/** Converte o link do Google Docs em endereço de pré-visualização embutível. */
-function linkPreview(link) {
-  const m = String(link).match(/^https:\/\/docs\.google\.com\/(document|spreadsheets|presentation)\/d\/([\w-]+)/);
-  return m ? `https://docs.google.com/${m[1]}/d/${m[2]}/preview` : "";
-}
 
 let timerAviso = null;
 function aviso(msg, ehErro = false) {
@@ -583,6 +590,7 @@ function renderizarGrupos() {
           <div><strong>${debate}</strong><span>em debate</span></div>
           <div><strong>${soma("Qtd_Abertos")}</strong><span>ações em aberto</span></div>
           <div class="${atrasados ? "perigo" : ""}"><strong>${atrasados}</strong><span>atrasadas</span></div>
+          <div><strong>${soma("Qtd_Entregas") - soma("Qtd_Entregas_Aprovadas")}</strong><span>entregas a analisar</span></div>
         </div>
       </button>`;
   }).join("") : `<div class="vazio">Nenhum grupo de trabalho cadastrado.</div>`;
@@ -642,10 +650,16 @@ async function alternarGrupoAtivo() {
 
 function renderizarTopo() {
   const ativos = usuariosAtivos();
-  const pendentes = minhasCitacoes().filter(c => c.Status === "Pendente").length;
+  // O número soma citações e encaminhamentos pendentes; o sino fica amarelo quando há encaminhamento para mim
+  const citPendentes = minhasCitacoes().filter(c => c.Status === "Pendente").length;
+  const meusEncs = meusEncaminhamentos().length;
   const badge = $("#badgeCitacoes");
-  badge.textContent = pendentes;
-  badge.hidden = !pendentes;
+  badge.textContent = citPendentes + meusEncs;
+  badge.hidden = !(citPendentes + meusEncs);
+  $("#btnCitacoes").classList.toggle("sino-alerta", meusEncs > 0);
+  $("#btnCitacoes").title = meusEncs
+    ? `${plural(meusEncs, "encaminhamento pendente", "encaminhamentos pendentes")} para você`
+    : "Citações e encaminhamentos para você";
 
   // Sugestões de nomes para os campos "Responsável"
   let dl = $("#dlUsuarios");
@@ -664,11 +678,18 @@ function renderizarKpis() {
   const debate = ideias.filter(i => i.Status === "Em Debate").length;
   const abertos = soma("Qtd_Abertos");
   const atrasados = soma("Qtd_Atrasados");
-  $("#kpis").innerHTML = `
-    <div class="kpi"><span>Pautas ativas</span><strong>${ativas}</strong></div>
-    <div class="kpi"><span>Em debate</span><strong>${debate}</strong></div>
-    <div class="kpi"><span>Encaminhamentos em aberto</span><strong>${abertos}</strong></div>
-    <div class="kpi ${atrasados ? "kpi-perigo" : ""}"><span>Encaminhamentos atrasados</span><strong>${atrasados}</strong></div>`;
+  const aprovadas = soma("Qtd_Entregas_Aprovadas");
+  const aAnalisar = soma("Qtd_Entregas") - aprovadas;
+  const kpi = (chave, rotulo, valor, classe = "") =>
+    `<button type="button" class="kpi ${classe}" data-indicador="${chave}" title="Ver a lista"><span>${rotulo}</span><strong>${valor}</strong></button>`;
+  $("#kpis").innerHTML =
+    kpi("ativas", "Pautas ativas", ativas) +
+    kpi("debate", "Em debate", debate) +
+    kpi("abertos", "Encaminhamentos em aberto", abertos) +
+    kpi("atrasados", "Encaminhamentos atrasados", atrasados, atrasados ? "kpi-perigo" : "") +
+    kpi("concluidos", "Encaminhamentos concluídos", soma("Qtd_Concluidos"), "kpi-sucesso") +
+    kpi("entAnalise", "Entregas aguardando análise", aAnalisar, aAnalisar ? "kpi-alerta" : "") +
+    kpi("entAprovadas", "Entregas aprovadas", aprovadas, "kpi-sucesso");
 }
 
 function ideiasFiltradas() {
@@ -698,7 +719,6 @@ function renderizarLista() {
         <div class="pauta-meta">
           <span>💬 ${nInt}</span>
           <span>📌 ${nEncs}${nAtrasados ? ` <b class="prazo-atrasado">(${nAtrasados} atrasado${nAtrasados > 1 ? "s" : ""})</b>` : ""}</span>
-          ${i.Link_Doc_Oficial ? "<span>📄 Texto oficial</span>" : ""}
           <span>${fmtData(i.Data_Criacao)}</span>
         </div>
       </button>`;
@@ -709,12 +729,13 @@ function renderizarDetalhe() {
   const det = $("#detalhe");
   const ideia = ideiaCompleta(estado.selecionada);
   if (!ideia) {
-    det.innerHTML = `<div class="vazio"><p>Selecione uma pauta para ver a discussão, os encaminhamentos e o texto oficial.</p></div>`;
+    det.innerHTML = `<div class="vazio"><p>Selecione uma pauta para ver a discussão e os encaminhamentos.</p></div>`;
     return;
   }
   const carregado = detalheDe(ideia.ID_Ideia);
   const interacoes = carregado ? carregado.interacoes : [];
   const encs = carregado ? carregado.encaminhamentos : [];
+  const entregas = carregado ? (carregado.entregas || []) : [];
   const nSugestoes = carregado ? interacoes.filter(i => i.Tipo === "Sugestão" && !i.ID_Pai).length : (Number(ideia.Qtd_Sugestoes) || 0);
   const nEncs = carregado ? encs.length : (Number(ideia.Qtd_Encaminhamentos) || 0);
 
@@ -743,12 +764,12 @@ function renderizarDetalhe() {
     <nav class="abas" role="tablist">
       ${aba("discussao", "Sugestões", nSugestoes)}
       ${aba("encaminhamentos", "Encaminhamentos", nEncs)}
-      ${aba("texto", "Texto oficial", ideia.Link_Doc_Oficial ? "✓" : "")}
     </nav>
     <div class="painel">
-      ${estado.aba === "texto" ? painelTexto(ideia) : !carregado
+      ${!carregado
         ? `<div class="carregando-painel"><span class="mini-spinner" aria-hidden="true"></span>Aguarde...</div>`
-        : estado.aba === "encaminhamentos" ? painelEncaminhamentos(ideia, encs) : painelDiscussao(ideia, interacoes, carregado.curtidas || [])}
+        : estado.aba === "encaminhamentos" ? (estado.encAberto ? painelEntregasDoEnc(ideia, encs, entregas) : painelEncaminhamentos(ideia, encs, entregas))
+        : painelDiscussao(ideia, interacoes, carregado.curtidas || [])}
     </div>`;
 }
 
@@ -858,7 +879,8 @@ function painelDiscussao(ideia, interacoes, curtidas = []) {
   return `<div class="linha-tempo">${lista}</div>` + blocoAvulsos + form;
 }
 
-function painelEncaminhamentos(ideia, encs) {
+function painelEncaminhamentos(ideia, encs, entregas) {
+  const entregasOrd = ordenarEntregas(entregas);
   const lista = [...encs].sort((a, b) => (prazoISO(a.Prazo) || "9999").localeCompare(prazoISO(b.Prazo) || "9999"));
 
   const linhas = lista.map(e => {
@@ -867,18 +889,22 @@ function painelEncaminhamentos(ideia, encs) {
            ${estado.listas.STATUS_ENCAMINHAMENTO.map(s => `<option ${s === e.Status ? "selected" : ""}>${esc(s)}</option>`).join("")}
          </select>`
       : seloStatus(e.Status);
+    // Só a contagem; a lista e o cadastro ficam no popup
+    const nEnt = entregasOrd.filter(en => entregasDoEnc(e).includes(String(en.ID_Entrega))).length;
+    const entregaCel = `<button class="btn btn-secundario btn-pequeno" data-entregas-enc="${esc(e.ID_Encaminhamento)}">${plural(nEnt, "entrega", "entregas")}</button>`;
     return `
       <tr>
         <td>${esc(e.Acao)}</td>
         <td>${esc(e.Responsavel)}</td>
         <td class="${atrasado(e) ? "prazo-atrasado" : ""}">${fmtData(prazoISO(e.Prazo)) || "—"}${atrasado(e) ? " ⚠" : ""}</td>
+        <td>${entregaCel}</td>
         <td>${statusCel}</td>
       </tr>`;
   }).join("");
 
   const tabela = lista.length ? `
     <table class="tabela">
-      <thead><tr><th>Ação</th><th>Responsável</th><th>Prazo</th><th>Status</th></tr></thead>
+      <thead><tr><th>Ação</th><th>Responsável</th><th>Prazo</th><th>Entregas</th><th>Status</th></tr></thead>
       <tbody>${linhas}</tbody>
     </table>` : `<p class="texto-vazio">Nenhum encaminhamento registrado.</p>`;
 
@@ -899,6 +925,186 @@ function painelEncaminhamentos(ideia, encs) {
     </form>` : "";
 
   return ia + tabela + form;
+}
+
+// Espelha statusEntrega() do Code.gs: status antigos são lidos como os atuais
+const STATUS_ENTREGA_ANTIGO = { "Aguardando entrega": "Aguardando análise", "Em análise": "Aguardando análise", "Concluído": "Aprovado" };
+const statusEntrega = en => {
+  const s = STATUS_ENTREGA_ANTIGO[en.Status] || en.Status;
+  return estado.listas.STATUS_ENTREGA.includes(s) ? s : estado.listas.STATUS_ENTREGA[0];
+};
+
+// Espelha ANEXO_EXTENSOES e ANEXO_MAX_BYTES do Code.gs
+const ANEXO_EXTENSOES = ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "txt", "csv", "rtf", "png", "jpg", "jpeg", "zip"];
+const ANEXO_MAX_BYTES = 10 * 1024 * 1024;
+
+function fmtTamanho(bytes) {
+  const n = Number(bytes) || 0;
+  return n >= 1024 * 1024 ? (n / 1024 / 1024).toFixed(1).replace(".", ",") + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
+}
+
+/** Documento da entrega: baixar e excluir quando há um; anexar quando não há. */
+function celulaAnexo(en) {
+  const id = esc(en.ID_Entrega);
+  if (en.Anexo_Nome) {
+    const info = [en.Anexo_Tamanho ? fmtTamanho(en.Anexo_Tamanho) : "", en.Anexo_Por ? "por " + en.Anexo_Por : "", en.Anexo_Em ? fmtData(en.Anexo_Em) : ""].filter(Boolean).join(" · ");
+    return `
+      <div class="anexo">
+        <button type="button" class="link-anexo" data-baixar-anexo="${id}" title="Baixar o documento">📎 ${esc(en.Anexo_Nome)}</button>
+        ${info ? `<small>${esc(info)}</small>` : ""}
+        ${podeEscrever() ? `<button type="button" class="btn btn-secundario btn-pequeno" data-excluir-anexo="${id}">Excluir documento</button>` : ""}
+      </div>`;
+  }
+  return podeEscrever()
+    ? `<button type="button" class="btn btn-secundario btn-pequeno" data-anexar="${id}">Anexar documento</button>`
+    : "";
+}
+
+function lerComoBase64(arquivo) {
+  return new Promise((ok, falha) => {
+    const leitor = new FileReader();
+    leitor.onload = () => ok(String(leitor.result).split(",")[1] || "");
+    leitor.onerror = () => falha(leitor.error);
+    leitor.readAsDataURL(arquivo);
+  });
+}
+
+/** Mensagem de erro para um arquivo que o servidor recusaria, ou "" se estiver tudo certo. */
+function problemaNoArquivo(arquivo) {
+  const ext = (arquivo.name.match(/\.([a-z0-9]+)$/i) || [])[1];
+  if (!ext || !ANEXO_EXTENSOES.includes(ext.toLowerCase())) return "Tipo de arquivo não aceito. Envie: " + ANEXO_EXTENSOES.join(", ") + ".";
+  if (arquivo.size > ANEXO_MAX_BYTES) return "O arquivo passa de 10 MB.";
+  if (!arquivo.size) return "O arquivo está vazio.";
+  return "";
+}
+
+async function enviarDocumento(idEntrega, arquivo) {
+  const conteudo = await lerComoBase64(arquivo);
+  return gravar("ANEXAR_ENTREGA", { idIdeia: estado.selecionada, idEntrega, nome: arquivo.name, tipo: arquivo.type, conteudo });
+}
+
+async function anexarDocumento(arquivo) {
+  const idEntrega = estado.entregaAnexando;
+  estado.entregaAnexando = null;
+  if (!arquivo || !idEntrega) return;
+  const problema = problemaNoArquivo(arquivo);
+  if (problema) return aviso(problema, true);
+  await enviarDocumento(idEntrega, arquivo);
+}
+
+/* Entregas de um encaminhamento: abrem no lugar da lista de encaminhamentos,
+   com o botão de voltar; "+ Nova entrega" abre o popup de cadastro */
+
+const encAbertoDe = encs => encs.find(e => String(e.ID_Encaminhamento) === String(estado.encAberto));
+
+function painelEntregasDoEnc(ideia, encs, entregas) {
+  const enc = encAbertoDe(encs);
+  if (!enc) { estado.encAberto = null; return painelEncaminhamentos(ideia, encs, entregas); }
+  const lista = ordenarEntregas(entregas.filter(en => entregasDoEnc(enc).includes(String(en.ID_Entrega))));
+  return `
+    <div class="entregas-cab">
+      <button type="button" class="btn btn-secundario btn-pequeno" id="btnVoltarEncs">← Voltar aos encaminhamentos</button>
+      ${podeEscrever() ? `<button type="button" class="btn btn-primario btn-pequeno" id="btnNovaEntrega">+ Nova entrega</button>` : ""}
+    </div>
+    <div class="entregas-enc">
+      <span class="ind-rotulo">Encaminhamento</span>
+      <strong>${esc(enc.Acao)}</strong>
+      <div class="meta ${atrasado(enc) ? "prazo-atrasado" : ""}">
+        ${enc.Responsavel ? esc(enc.Responsavel) + " · " : ""}Prazo: ${fmtData(prazoISO(enc.Prazo)) || "sem prazo"}${atrasado(enc) ? " · atrasado" : ""} · ${seloStatus(enc.Status)}
+      </div>
+    </div>
+    <h3 class="titulo-entregas">Entregas <span class="contador">${lista.length}</span></h3>
+    ${lista.length ? `
+    <ul class="lista-entregas">${lista.map(en => `
+      <li>
+        <div class="lista-entregas-topo">
+          <strong>${fmtData(prazoISO(en.Data_Entrega)) || "—"}</strong>
+          ${ehAdmin()
+            ? `<select data-entrega-status="${esc(en.ID_Entrega)}" aria-label="Status da entrega">
+                 ${estado.listas.STATUS_ENTREGA.map(st => `<option ${st === statusEntrega(en) ? "selected" : ""}>${esc(st)}</option>`).join("")}
+               </select>`
+            : seloStatus(statusEntrega(en))}
+          ${en.Responsavel ? `<span class="meta">${esc(en.Responsavel)}</span>` : ""}
+        </div>
+        ${en.Comentarios ? `<p>${formatarTexto(en.Comentarios)}</p>` : ""}
+        ${celulaAnexo(en)}
+      </li>`).join("")}
+    </ul>` : `<p class="texto-vazio">Nenhuma entrega neste encaminhamento ainda.</p>`}
+    <input type="file" id="enArquivoLista" accept="${ANEXO_EXTENSOES.map(x => "." + x).join(",")}" hidden>`;
+}
+
+function abrirModalEntrega() {
+  const det = detalheDe(estado.selecionada);
+  const enc = det && encAbertoDe(det.encaminhamentos || []);
+  if (!enc) return;
+  $("#meEncaminhamento").textContent = "Encaminhamento: " + enc.Acao;
+  $("#meArquivo").accept = ANEXO_EXTENSOES.map(x => "." + x).join(",");
+  $("#meData").value = "";
+  $("#meResponsavel").value = enc.Responsavel || "";
+  $("#meComentarios").value = "";
+  $("#meArquivo").value = "";
+  $("#erroEntrega").hidden = true;
+  $("#modalEntrega").showModal();
+  $("#meData").focus();
+}
+
+async function salvarEntregaModal(ev) {
+  ev.preventDefault();
+  const arquivo = $("#meArquivo").files[0];
+  const problema = arquivo ? problemaNoArquivo(arquivo) : "";
+  if (problema) {
+    $("#erroEntrega").textContent = problema;
+    $("#erroEntrega").hidden = false;
+    return;
+  }
+  const r = await gravar("ADD_ENTREGA", {
+    idIdeia: estado.selecionada,
+    dataEntrega: $("#meData").value,
+    responsavel: $("#meResponsavel").value,
+    comentarios: $("#meComentarios").value,
+    idEncaminhamentos: [estado.encAberto]
+  });
+  if (!r) return;
+  $("#modalEntrega").close();
+  if (arquivo && r.idEntrega) await enviarDocumento(r.idEntrega, arquivo);
+}
+
+async function excluirAnexo(idEntrega) {
+  const det = detalheDe(estado.selecionada);
+  const en = det && (det.entregas || []).find(x => String(x.ID_Entrega) === String(idEntrega));
+  if (!en) return;
+  const senha = await pedirSenhaExclusao(`Excluir o documento "${en.Anexo_Nome}" da entrega de ${fmtData(prazoISO(en.Data_Entrega))}?\n\nDepois você pode anexar outro.`);
+  if (senha === null) return;
+  await gravar("EXCLUIR_ANEXO_ENTREGA", { idIdeia: estado.selecionada, idEntrega, senha });
+}
+
+async function baixarAnexo(idEntrega) {
+  const r = await api("BAIXAR_ANEXO", { idEntrega });
+  if (sessaoExpirou(r)) return;
+  if (r.status !== "success") return aviso(r.message || "Não foi possível baixar o documento.", true);
+  const bin = atob(r.conteudo || "");
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const url = URL.createObjectURL(new Blob([bytes], { type: r.tipo || "application/octet-stream" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = r.nome || "documento";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** IDs das entregas vinculadas ao encaminhamento (a versão anterior guardava uma só, em ID_Entrega). */
+const entregasDoEnc = e => String(e.ID_Entregas || e.ID_Entrega || "").split(",").map(x => x.trim()).filter(Boolean);
+
+const ordenarEntregas = lista => [...lista].sort((a, b) => (prazoISO(a.Data_Entrega) || "9999").localeCompare(prazoISO(b.Data_Entrega) || "9999"));
+
+/** "15/12/2026 · Minuta revisada..." — data e começo dos comentários, para as listas de escolha. */
+function rotuloEntrega(en) {
+  const coment = String(en.Comentarios || "").replace(/\s+/g, " ").trim();
+  const resumo = coment.length > 50 ? coment.slice(0, 50) + "…" : coment;
+  return [fmtData(prazoISO(en.Data_Entrega)), resumo || en.Responsavel].filter(Boolean).join(" · ");
 }
 
 function blocoIaEncaminhamentos(ideia) {
@@ -924,33 +1130,6 @@ function blocoIaEncaminhamentos(ideia) {
   </div>`;
 }
 
-function painelTexto(ideia) {
-  const link = ideia.Link_Doc_Oficial;
-  const preview = link ? linkPreview(link) : "";
-  const doc = link ? `
-    <div class="doc-oficial">
-      <div class="doc-icone" aria-hidden="true"></div>
-      <div class="info">
-        <strong>Texto oficial da pauta</strong>
-        <small>${esc(link)}</small>
-      </div>
-      <a class="btn btn-primario" href="${esc(link)}" target="_blank" rel="noopener">Abrir no Google Docs</a>
-    </div>
-    ${preview ? `<iframe class="doc-preview" src="${esc(preview)}" title="Pré-visualização do texto oficial" loading="lazy"></iframe>` : ""}`
-    : `<p class="texto-vazio">Ainda não há texto oficial vinculado a esta pauta.</p>`;
-
-  const form = podeEscrever() ? `
-    <form class="form-inline" id="formTexto">
-      <label for="tLink" style="margin:0">${link ? "Alterar link do texto oficial" : "Vincular texto oficial (Google Docs)"}</label>
-      <div class="linha" style="grid-template-columns:1fr auto">
-        <input type="url" id="tLink" placeholder="https://docs.google.com/document/d/..." value="${esc(link || "")}">
-        <button class="btn btn-primario" type="submit">Salvar link</button>
-      </div>
-    </form>` : "";
-
-  return doc + form;
-}
-
 /* ---------------------------------------------------------- */
 /* Pautas (modal)                                              */
 /* ---------------------------------------------------------- */
@@ -962,7 +1141,6 @@ function abrirModalPauta(ideia = null) {
   $("#modalPautaTitulo").textContent = ideia ? "Editar pauta" : "Nova pauta";
   $("#pTitulo").value = ideia ? ideia.Titulo : "";
   $("#pDescricao").value = ideia ? ideia.Descricao : "";
-  $("#pLink").value = ideia ? ideia.Link_Doc_Oficial : "";
   $("#pStatus").value = ideia ? ideia.Status : "Em Debate";
   $("#campoStatus").hidden = !ideia;
   $("#erroPauta").hidden = true;
@@ -974,8 +1152,7 @@ async function salvarPauta(ev) {
   ev.preventDefault();
   const dados = {
     titulo: $("#pTitulo").value,
-    descricao: $("#pDescricao").value,
-    linkDoc: $("#pLink").value.trim()
+    descricao: $("#pDescricao").value
   };
   let r;
   if (editandoId) {
@@ -1150,27 +1327,133 @@ async function gerarRelatorio(idIdeia) {
   $("#modalRelatorio").showModal();
 }
 
+/**
+ * Carrega o detalhe das pautas (até 3 por vez, para não sobrecarregar o Apps Script).
+ * atualizar: busca de novo mesmo as que já estão na memória, que podem estar desatualizadas.
+ */
+async function carregarPautas(ideias, { atualizar = false } = {}) {
+  const faltando = atualizar ? [...ideias] : ideias.filter(i => !detalheDe(i.ID_Ideia));
+  let prontas = ideias.length - faltando.length;
+  const avancar = () => definirProgressoLoading(`Carregando as pautas do GT: ${prontas} de ${ideias.length}...`);
+  if (faltando.length) avancar();
+  const fila = [...faltando];
+  await Promise.all(Array.from({ length: Math.min(3, fila.length) }, async () => {
+    while (fila.length) {
+      await carregarDetalhe(fila.shift().ID_Ideia);
+      prontas++;
+      avancar();
+    }
+  }));
+}
+
+/* ---------------------------------------------------------- */
+/* Indicadores do topo: cada um abre a lista do que ele conta   */
+/* ---------------------------------------------------------- */
+
+const INDICADORES = {
+  ativas:       { titulo: "Pautas ativas",                 tipo: "pauta",   filtro: i => i.Status !== "Arquivada" },
+  debate:       { titulo: "Pautas em debate",              tipo: "pauta",   filtro: i => i.Status === "Em Debate" },
+  abertos:      { titulo: "Encaminhamentos em aberto",     tipo: "enc",     filtro: emAberto,                       campo: "Qtd_Abertos" },
+  atrasados:    { titulo: "Encaminhamentos atrasados",     tipo: "enc",     filtro: atrasado,                       campo: "Qtd_Atrasados" },
+  concluidos:   { titulo: "Encaminhamentos concluídos",    tipo: "enc",     filtro: e => e.Status === "Concluído",  campo: "Qtd_Concluidos" },
+  entAnalise:   { titulo: "Entregas aguardando análise",   tipo: "entrega", filtro: en => statusEntrega(en) === "Aguardando análise", campo: "Qtd_Entregas" },
+  entAprovadas: { titulo: "Entregas aprovadas",            tipo: "entrega", filtro: en => statusEntrega(en) === "Aprovado",           campo: "Qtd_Entregas_Aprovadas" }
+};
+
+const linhaEntrega = en => `
+  <li>
+    <strong>${fmtData(prazoISO(en.Data_Entrega)) || "—"}</strong> ${seloStatus(statusEntrega(en))}
+    ${en.Responsavel ? `<span class="meta">${esc(en.Responsavel)}</span>` : ""}
+    ${en.Comentarios ? `<span class="ind-coment">${esc(String(en.Comentarios).slice(0, 120))}${String(en.Comentarios).length > 120 ? "…" : ""}</span>` : ""}
+    ${en.Anexo_Nome ? `<span class="meta">📎 ${esc(en.Anexo_Nome)}</span>` : ""}
+  </li>`;
+
+const blocoEncaminhamento = (e, entregas) => `
+  <div class="ind-enc">
+    <div class="ind-enc-topo">
+      <span class="ind-rotulo">Encaminhamento</span>
+      <strong>${esc(e.Acao)}</strong>
+      ${seloStatus(e.Status)}
+    </div>
+    <div class="meta ${atrasado(e) ? "prazo-atrasado" : ""}">${e.Responsavel ? esc(e.Responsavel) + " · " : ""}Prazo: ${fmtData(prazoISO(e.Prazo)) || "sem prazo"}${atrasado(e) ? " · atrasado" : ""}</div>
+    ${entregas.length
+      ? `<ul class="ind-entregas">${entregas.map(linhaEntrega).join("")}</ul>`
+      : `<div class="meta">Nenhuma entrega.</div>`}
+  </div>`;
+
+const cabecalhoPauta = (ideia, extra = "") => `
+  <div class="ind-pauta-topo">
+    <span class="ind-rotulo">Pauta</span>
+    <a href="#" data-ind-pauta="${esc(ideia.ID_Ideia)}">${esc(ideia.Titulo)}</a>
+    ${seloStatus(ideia.Status)}
+    ${extra}
+  </div>`;
+
+async function abrirIndicador(chave) {
+  const ind = INDICADORES[chave];
+  if (!ind) return;
+  const ideias = ideiasDoGrupo().sort((a, b) => String(a.Titulo).localeCompare(String(b.Titulo), "pt-BR"));
+  let html = "";
+  let total = 0;
+
+  if (ind.tipo === "pauta") {
+    const lista = ideias.filter(ind.filtro);
+    total = lista.length;
+    html = lista.map(i => `
+      <section class="ind-pauta">
+        ${cabecalhoPauta(i)}
+        <div class="meta">${plural(Number(i.Qtd_Sugestoes) || 0, "sugestão", "sugestões")} · ${plural(Number(i.Qtd_Encaminhamentos) || 0, "encaminhamento", "encaminhamentos")} · ${plural(Number(i.Qtd_Entregas) || 0, "entrega", "entregas")}</div>
+      </section>`).join("");
+  } else {
+    // Só busca no servidor as pautas que têm algo a contar
+    const alvo = ideias.filter(i => (Number(i[ind.campo]) || 0) > 0 || (ind.tipo === "entrega" && (Number(i.Qtd_Entregas) || 0) > 0));
+    mostrarLoading("LISTAR");
+    // Os números do topo vêm do resumo atual; o detalhe guardado pode estar velho
+    try { await carregarPautas(alvo, { atualizar: true }); } finally { definirProgressoLoading(null); esconderLoading(); }
+
+    html = alvo.map(i => {
+      const det = detalheDe(i.ID_Ideia);
+      if (!det) return "";
+      const encs = [...(det.encaminhamentos || [])].sort((a, b) => (prazoISO(a.Prazo) || "9999").localeCompare(prazoISO(b.Prazo) || "9999"));
+      const entregas = ordenarEntregas(det.entregas || []);
+      const entregasDe = e => entregas.filter(en => entregasDoEnc(e).includes(String(en.ID_Entrega)));
+      let corpo = "";
+      if (ind.tipo === "enc") {
+        const lista = encs.filter(ind.filtro);
+        total += lista.length;
+        corpo = lista.map(e => blocoEncaminhamento(e, entregasDe(e))).join("");
+      } else {
+        const lista = entregas.filter(ind.filtro);
+        total += lista.length;
+        const ids = lista.map(en => String(en.ID_Entrega));
+        // Cada encaminhamento com as entregas dele que entram no indicador
+        corpo = encs.map(e => ({ e, ents: entregasDe(e).filter(en => ids.includes(String(en.ID_Entrega))) }))
+          .filter(x => x.ents.length)
+          .map(x => blocoEncaminhamento(x.e, x.ents)).join("");
+        const soltas = lista.filter(en => !encs.some(e => entregasDoEnc(e).includes(String(en.ID_Entrega))));
+        if (soltas.length) corpo += `<div class="ind-enc"><div class="ind-enc-topo"><span class="ind-rotulo">Sem encaminhamento</span></div><ul class="ind-entregas">${soltas.map(linhaEntrega).join("")}</ul></div>`;
+      }
+      return corpo ? `<section class="ind-pauta">${cabecalhoPauta(i)}${corpo}</section>` : "";
+    }).join("");
+  }
+
+  const grupo = grupoAtual();
+  $("#indicadorTitulo").textContent = ind.titulo;
+  $("#indicadorSub").textContent = `${grupo ? grupo.Nome + " · " : ""}${total} ${total === 1 ? "item" : "itens"}`;
+  $("#indicadorLista").innerHTML = html || `<p class="texto-vazio">Nada por aqui.</p>`;
+  $("#indicadorLista").dataset.aba = ind.tipo === "pauta" ? "discussao" : "encaminhamentos";
+  if (!$("#modalIndicador").open) $("#modalIndicador").showModal();
+}
+
 /** Relatório de todas as pautas do GT aberto: carrega cada uma (com progresso no loading) e monta. */
 async function gerarRelatorioGrupo() {
   const grupo = grupoAtual();
   if (!grupo) return;
   const ideias = ideiasDoGrupo().sort((a, b) => String(a.Data_Criacao).localeCompare(String(b.Data_Criacao)));
-  const faltando = ideias.filter(i => !detalheDe(i.ID_Ideia));
 
   mostrarLoading("RELATORIO_GT");
   try {
-    // Até 3 pautas por vez, para não sobrecarregar o Apps Script
-    let prontas = ideias.length - faltando.length;
-    const avancar = () => definirProgressoLoading(`Carregando as pautas do GT: ${prontas} de ${ideias.length}...`);
-    avancar();
-    const fila = [...faltando];
-    await Promise.all(Array.from({ length: Math.min(3, fila.length) }, async () => {
-      while (fila.length) {
-        await carregarDetalhe(fila.shift().ID_Ideia);
-        prontas++;
-        avancar();
-      }
-    }));
+    await carregarPautas(ideias);
     definirProgressoLoading("Montando o relatório...");
     const pautas = ideias.map(i => ({ ideia: ideiaCompleta(i.ID_Ideia), det: detalheDe(i.ID_Ideia) })).filter(p => p.det);
     if (pautas.length < ideias.length) aviso(`${ideias.length - pautas.length} pauta(s) não carregaram e ficaram fora do relatório. Tente de novo.`, true);
@@ -1260,7 +1543,8 @@ function dadosDaPauta(det) {
     avulsos: interacoes.filter(i => i.Tipo !== "Sugestão" && !(i.ID_Pai && ids.has(String(i.ID_Pai)))).sort(porData),
     comentariosDe: id => interacoes.filter(i => String(i.ID_Pai) === String(id)).sort(porData),
     nComentarios: interacoes.filter(i => i.ID_Pai && ids.has(String(i.ID_Pai))).length,
-    nAtrasados: encs.filter(atrasado).length
+    nAtrasados: encs.filter(atrasado).length,
+    entregas: ordenarEntregas(det.entregas || [])
   };
 }
 
@@ -1304,13 +1588,30 @@ function corpoPauta(ideia, det, { comGrupo = true } = {}) {
       </tbody>
     </table>` : `<p class="vazio">Nenhum encaminhamento registrado.</p>`;
 
+  const blocoEntregas = d.entregas.length ? `
+    <table>
+      <thead><tr><th>Data</th><th>Responsável</th><th>Status</th><th>Comentários</th><th>Documento</th><th>Encaminhamentos ligados</th></tr></thead>
+      <tbody>${d.entregas.map(en => {
+        const ligados = d.encs.filter(e => entregasDoEnc(e).includes(String(en.ID_Entrega)));
+        return `
+        <tr>
+          <td>${fmtData(prazoISO(en.Data_Entrega)) || "—"}</td>
+          <td>${esc(en.Responsavel || "—")}</td>
+          <td>${esc(statusEntrega(en))}</td>
+          <td>${en.Comentarios ? textoRelatorio(en.Comentarios) : "—"}</td>
+          <td>${esc(en.Anexo_Nome || "—")}</td>
+          <td>${ligados.length ? ligados.map(e => `${textoRelatorio(e.Acao)} <small>(${esc(e.Status)})</small>`).join("<br>") : "—"}</td>
+        </tr>`;
+      }).join("")}
+      </tbody>
+    </table>` : `<p class="vazio">Nenhuma entrega registrada.</p>`;
+
   return `
     <h1>${esc(ideia.Titulo)}</h1>
     <div class="info">
       ${comGrupo ? `<span>Grupo de trabalho</span><b>${esc(grupo ? grupo.Nome : "—")}</b>` : ""}
       <span>Status</span><b>${esc(ideia.Status || "—")}</b>
       <span>Criada em</span><b>${fmtData(ideia.Data_Criacao, true)}${ideia.Autor ? " por " + esc(ideia.Autor) : ""}</b>
-      ${ideia.Link_Doc_Oficial ? `<span>Texto oficial</span><b><a href="${esc(ideia.Link_Doc_Oficial)}">${esc(ideia.Link_Doc_Oficial)}</a></b>` : ""}
     </div>
     ${ideia.Descricao ? `<p class="descricao">${textoRelatorio(ideia.Descricao)}</p>` : ""}
 
@@ -1328,7 +1629,10 @@ function corpoPauta(ideia, det, { comGrupo = true } = {}) {
     ${blocoAvulsos}
 
     <h2>Encaminhamentos</h2>
-    ${blocoEncs}`;
+    ${blocoEncs}
+
+    <h2>Entregas</h2>
+    ${blocoEntregas}`;
 }
 
 /** Página completa do relatório: cabeçalho com logo, conteúdo e rodapé. */
@@ -1413,7 +1717,48 @@ function htmlRelatorioGrupo(grupo, pautas) {
 /* Citações                                                    */
 /* ---------------------------------------------------------- */
 
+/** Encaminhamentos em aberto em que sou o responsável (o servidor já filtra), do prazo mais próximo ao mais distante. */
+const meusEncaminhamentos = () => [...(estado.dados.meusEncaminhamentos || [])]
+  .filter(emAberto)
+  .sort((a, b) => (prazoISO(a.Prazo) || "9999").localeCompare(prazoISO(b.Prazo) || "9999"));
+
+function renderizarMeusEncaminhamentos() {
+  const lista = meusEncaminhamentos();
+  $("#meusEncaminhamentos").innerHTML = `
+    <h3 class="modal-secao primeira">Encaminhamentos pendentes${lista.length ? ` <span class="contador">${lista.length}</span>` : ""}</h3>
+    ${lista.length ? lista.map(e => {
+      const ideia = estado.dados.ideias.find(i => String(i.ID_Ideia) === String(e.ID_Ideia));
+      return `
+        <div class="ia-bloco citacao enc-meu">
+          <div class="pauta-topo">
+            <h4><a href="#" data-meu-enc="${esc(e.ID_Ideia)}">${esc(ideia ? ideia.Titulo : "Pauta removida")}</a></h4>
+            ${seloStatus(e.Status)}
+          </div>
+          <p>${esc(e.Acao)}</p>
+          <div class="meta-cit ${atrasado(e) ? "prazo-atrasado" : ""}">Prazo: ${fmtData(prazoISO(e.Prazo)) || "sem prazo"}${atrasado(e) ? " · atrasado" : ""}</div>
+          <div class="rodape">
+            <button class="btn btn-secundario btn-pequeno" data-meu-enc="${esc(e.ID_Ideia)}">Ver na pauta</button>
+          </div>
+        </div>`;
+    }).join("") : `<p class="texto-vazio">Nenhum encaminhamento pendente para você.</p>`}`;
+}
+
+/** Abre a pauta (no GT dela) na aba de encaminhamentos. */
+async function irParaMeuEncaminhamento(idIdeia) {
+  $("#modalCitacoes").close();
+  estado.aba = "encaminhamentos";
+  estado.encAberto = null;
+  estado.filtroTipo = "";
+  estado.citacaoOrigem = null;
+  const ideia = estado.dados.ideias.find(i => String(i.ID_Ideia) === String(idIdeia));
+  if (ideia && grupoDe(ideia) !== estado.grupo) abrirGrupo(grupoDe(ideia));
+  const pendente = selecionarPauta(idIdeia);
+  if (!detalheDe(idIdeia)) await pendente;
+  $("#detalhe").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function renderizarCitacoes() {
+  renderizarMeusEncaminhamentos();
   const eu = meuUsuario();
   const sub = $("#citacoesSub");
   const lista = $("#listaCitacoes");
@@ -1682,6 +2027,25 @@ window.addEventListener("scroll", fecharMencao, true);
 
 $("#btnCitacoes").addEventListener("click", () => { renderizarCitacoes(); $("#modalCitacoes").showModal(); });
 $("#btnFecharCitacoes").addEventListener("click", () => $("#modalCitacoes").close());
+$("#kpis").addEventListener("click", ev => {
+  const k = ev.target.closest("[data-indicador]");
+  if (k) abrirIndicador(k.dataset.indicador);
+});
+$("#btnFecharIndicador").addEventListener("click", () => $("#modalIndicador").close());
+$("#indicadorLista").addEventListener("click", ev => {
+  const a = ev.target.closest("[data-ind-pauta]");
+  if (!a) return;
+  ev.preventDefault();
+  $("#modalIndicador").close();
+  estado.aba = $("#indicadorLista").dataset.aba || "discussao";
+  estado.encAberto = null;
+  selecionarPauta(a.dataset.indPauta);
+  $("#detalhe").scrollIntoView({ behavior: "smooth", block: "start" });
+});
+$("#meusEncaminhamentos").addEventListener("click", ev => {
+  const ver = ev.target.closest("[data-meu-enc]");
+  if (ver) { ev.preventDefault(); irParaMeuEncaminhamento(ver.dataset.meuEnc); }
+});
 $("#filtroCitacoes").addEventListener("click", ev => {
   const chip = ev.target.closest("[data-fcit]");
   if (chip) { estado.filtroCitacoes = chip.dataset.fcit; renderizarCitacoes(); }
@@ -1784,6 +2148,18 @@ $("#formSenha").addEventListener("submit", async ev => {
 });
 
 $("#btnSair").addEventListener("click", sair);
+
+/* Menu da engrenagem: abre e fecha; qualquer item escolhido fecha o menu */
+function abrirMenu(abrir) {
+  $("#menuConfig").hidden = !abrir;
+  $("#btnMenu").setAttribute("aria-expanded", String(abrir));
+}
+$("#btnMenu").addEventListener("click", ev => { ev.stopPropagation(); abrirMenu($("#menuConfig").hidden); });
+$("#menuConfig").addEventListener("click", ev => { if (ev.target.closest(".menu-item")) abrirMenu(false); });
+document.addEventListener("click", ev => { if (!ev.target.closest(".menu-config")) abrirMenu(false); });
+document.addEventListener("keydown", ev => { if (ev.key === "Escape" && !$("#menuConfig").hidden) { abrirMenu(false); $("#btnMenu").focus(); } });
+$("#btnFluxo").addEventListener("click", () => $("#modalFluxo").showModal());
+$("#btnFecharFluxo").addEventListener("click", () => $("#modalFluxo").close());
 $("#listaGrupos").addEventListener("click", ev => {
   const card = ev.target.closest("[data-grupo]");
   if (card) { abrirGrupo(card.dataset.grupo); window.scrollTo(0, 0); }
@@ -1800,6 +2176,8 @@ $("#filtroStatus").addEventListener("change", renderizarLista);
 $("#btnNovaPauta").addEventListener("click", () => abrirModalPauta());
 $("#btnCancelarPauta").addEventListener("click", () => $("#modalPauta").close());
 $("#formPauta").addEventListener("submit", salvarPauta);
+$("#btnCancelarEntregaModal").addEventListener("click", () => $("#modalEntrega").close());
+$("#formEntregaModal").addEventListener("submit", salvarEntregaModal);
 
 $("#btnIaPautas").addEventListener("click", () => { renderizarSugestoesPautas(); $("#modalIa").showModal(); });
 $("#btnFecharIa").addEventListener("click", () => $("#modalIa").close());
@@ -1822,7 +2200,7 @@ const detalhe = $("#detalhe");
 
 detalhe.addEventListener("click", ev => {
   const abaBtn = ev.target.closest("[data-aba]");
-  if (abaBtn) { estado.aba = abaBtn.dataset.aba; return renderizarDetalhe(); }
+  if (abaBtn) { estado.aba = abaBtn.dataset.aba; estado.encAberto = null; return renderizarDetalhe(); }
 
 
   if (ev.target.closest("#btnEditarPauta")) {
@@ -1843,6 +2221,26 @@ detalhe.addEventListener("click", ev => {
 
   const adotar = ev.target.closest("[data-ia-adotar]");
   if (adotar) return adotarEncaminhamento(Number(adotar.dataset.iaAdotar));
+
+  const entregasEnc = ev.target.closest("[data-entregas-enc]");
+  if (entregasEnc) {
+    estado.encAberto = entregasEnc.dataset.entregasEnc;
+    renderizarDetalhe();
+    return $("#detalhe .painel").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+  if (ev.target.closest("#btnVoltarEncs")) { estado.encAberto = null; return renderizarDetalhe(); }
+  if (ev.target.closest("#btnNovaEntrega")) return abrirModalEntrega();
+  const baixar = ev.target.closest("[data-baixar-anexo]");
+  if (baixar) return baixarAnexo(baixar.dataset.baixarAnexo);
+  const excluirDoc = ev.target.closest("[data-excluir-anexo]");
+  if (excluirDoc) return excluirAnexo(excluirDoc.dataset.excluirAnexo);
+  const anexar = ev.target.closest("[data-anexar]");
+  if (anexar) {
+    estado.entregaAnexando = anexar.dataset.anexar;
+    const input = $("#enArquivoLista");
+    input.value = "";
+    return input.click();
+  }
 });
 
 // "toggle" não borbulha: escuta na captura para lembrar quais sugestões estão abertas
@@ -1857,6 +2255,10 @@ detalhe.addEventListener("change", ev => {
     gravar("EDITAR_IDEIA", { idIdeia: estado.selecionada, status: ev.target.value });
   } else if (ev.target.dataset.enc) {
     gravar("ATUALIZAR_ENCAMINHAMENTO", { idEncaminhamento: ev.target.dataset.enc, status: ev.target.value, idIdeia: estado.selecionada });
+  } else if (ev.target.dataset.entregaStatus) {
+    gravar("EDITAR_ENTREGA", { idEntrega: ev.target.dataset.entregaStatus, status: ev.target.value, idIdeia: estado.selecionada });
+  } else if (ev.target.id === "enArquivoLista") {
+    anexarDocumento(ev.target.files[0]);
   }
 });
 
@@ -1882,8 +2284,6 @@ detalhe.addEventListener("submit", async ev => {
       idCitacao: estado.citacaoOrigem || ""
     });
     if (ok && estado.citacaoOrigem) { estado.citacaoOrigem = null; renderizarDetalhe(); }
-  } else if (ev.target.id === "formTexto") {
-    await gravar("EDITAR_IDEIA", { idIdeia: id, linkDoc: $("#tLink").value.trim() });
   }
 });
 
@@ -1912,9 +2312,9 @@ detalhe.addEventListener("submit", async ev => {
 
 const demoBanco = {
   ideias: [
-    { ID_Ideia: "IDEIA-1", Data_Criacao: "2026-10-20T13:00:00.000Z", Titulo: "Política de uso de IA generativa", Descricao: "Definir regras para uso de ferramentas de IA pelos servidores, incluindo dados que podem ou não ser enviados.", Status: "Em Debate", Link_Doc_Oficial: "", Autor: "Ana" },
-    { ID_Ideia: "IDEIA-2", Data_Criacao: "2026-10-27T13:00:00.000Z", Titulo: "Renovação do parque de notebooks", Descricao: "Levantar a necessidade de substituição dos equipamentos com mais de 5 anos.", Status: "Em Redação", Link_Doc_Oficial: "https://docs.google.com/document/d/EXEMPLO/edit", Autor: "Bruno" },
-    { ID_Ideia: "IDEIA-3", ID_Grupo: "GT-COMPRAS", Data_Criacao: "2026-10-29T13:00:00.000Z", Titulo: "Calendário de licitações 2027", Descricao: "Consolidar as demandas de compra das áreas e definir o calendário anual de licitações.", Status: "Em Debate", Link_Doc_Oficial: "", Autor: "Ana Souza" }
+    { ID_Ideia: "IDEIA-1", Data_Criacao: "2026-10-20T13:00:00.000Z", Titulo: "Política de uso de IA generativa", Descricao: "Definir regras para uso de ferramentas de IA pelos servidores, incluindo dados que podem ou não ser enviados.", Status: "Em Debate", Autor: "Ana" },
+    { ID_Ideia: "IDEIA-2", Data_Criacao: "2026-10-27T13:00:00.000Z", Titulo: "Renovação do parque de notebooks", Descricao: "Levantar a necessidade de substituição dos equipamentos com mais de 5 anos.", Status: "Em Redação", Autor: "Bruno" },
+    { ID_Ideia: "IDEIA-3", ID_Grupo: "GT-COMPRAS", Data_Criacao: "2026-10-29T13:00:00.000Z", Titulo: "Calendário de licitações 2027", Descricao: "Consolidar as demandas de compra das áreas e definir o calendário anual de licitações.", Status: "Em Debate", Autor: "Ana Souza" }
   ],
   // IDEIA-1 e IDEIA-2 não têm ID_Grupo (como numa planilha antiga) → GT-Sistemas
   grupos: [
@@ -1931,7 +2331,11 @@ const demoBanco = {
   ],
   encaminhamentos: [
     { ID_Encaminhamento: "ENC-1", ID_Ideia: "IDEIA-2", Acao: "Levantar inventário de notebooks por setor", Responsavel: "Bruno", Prazo: "2026-10-30", Status: "Pendente" },
-    { ID_Encaminhamento: "ENC-2", ID_Ideia: "IDEIA-1", Acao: "Consultar o encarregado de dados (DPO)", Responsavel: "Carla", Prazo: "2026-11-20", Status: "Em Andamento" }
+    { ID_Encaminhamento: "ENC-2", ID_Ideia: "IDEIA-1", Acao: "Consultar o encarregado de dados (DPO)", Responsavel: "Carla", Prazo: "2026-11-20", Status: "Em Andamento", ID_Entregas: "ENT-1" },
+    { ID_Encaminhamento: "ENC-3", ID_Ideia: "IDEIA-3", Acao: "Levantar o orçamento das renovações de licenças", Responsavel: "Marco Nunes", Prazo: "2026-11-05", Status: "Pendente" }
+  ],
+  entregas: [
+    { ID_Entrega: "ENT-1", ID_Ideia: "IDEIA-1", Data_Entrega: "2026-12-15", Responsavel: "Carla", Comentarios: "Minuta da política revisada pelo DPO", Status: "Aprovado" }
   ],
   // No demo a senha fica em texto só para simular; o Code.gs guarda hash
   usuarios: [
@@ -1961,7 +2365,7 @@ const demoSessoes = (() => {
 
 const DEMO_NIVEL = { Administrador: "ADMIN", Colaborador: "ESCRITA", Leitura: "LEITURA" };
 const DEMO_EXCLUEM = ["marco.nunes"]; // espelha EXCLUEM_INTERACOES do Code.gs
-const DEMO_SO_LEITURA = new Set(["LOGIN", "LISTAR", "DETALHE_IDEIA", "SAIR", "ALTERAR_SENHA", "IA_SUGERIR_PAUTAS", "IA_SUGERIR_ENCAMINHAMENTOS"]);
+const DEMO_SO_LEITURA = new Set(["LOGIN", "LISTAR", "DETALHE_IDEIA", "SAIR", "BAIXAR_ANEXO", "ALTERAR_SENHA", "IA_SUGERIR_PAUTAS", "IA_SUGERIR_ENCAMINHAMENTOS"]);
 
 /** Simula o Code.gs: carga parcial (resumo + detalhe) e gravações que já devolvem os dados. */
 async function demoApi(req) {
@@ -1982,6 +2386,8 @@ async function demoApi(req) {
   return r;
 }
 
+const normalizarNome = v => String(v || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
 function demoResumo(sessao) {
   const nivel = sessao.nivel;
   const hoje = hojeISO();
@@ -1999,7 +2405,10 @@ function demoResumo(sessao) {
       Qtd_Comentarios: ints.filter(x => !(x.Tipo === "Sugestão" && !x.ID_Pai)).length,
       Qtd_Encaminhamentos: encs.length,
       Qtd_Abertos: abertos.length,
-      Qtd_Atrasados: abertos.filter(e => String(e.Prazo || "") && String(e.Prazo).slice(0, 10) < hoje).length
+      Qtd_Atrasados: abertos.filter(e => String(e.Prazo || "") && String(e.Prazo).slice(0, 10) < hoje).length,
+      Qtd_Concluidos: encs.filter(e => e.Status === "Concluído").length,
+      Qtd_Entregas: copia.entregas.filter(x => x.ID_Ideia === i.ID_Ideia).length,
+      Qtd_Entregas_Aprovadas: copia.entregas.filter(x => x.ID_Ideia === i.ID_Ideia && statusEntrega(x) === "Aprovado").length
     };
   });
   const usuarios = copia.usuarios.map(({ senha, ...u }) => nivel === "ADMIN" ? { ...u, Tem_Senha: !!senha } : { ID_Usuario: u.ID_Usuario, Nome: u.Nome, Apelido: u.Apelido, Ativo: u.Ativo });
@@ -2013,6 +2422,11 @@ function demoResumo(sessao) {
       grupos: copia.grupos.filter(g => nivel === "ADMIN" || grupoAtivo(g)),
       usuarios,
       citacoes: meu ? copia.citacoes.filter(c => c.Apelido === meu) : [],
+      // Espelha meusEncaminhamentos do Code.gs
+      meusEncaminhamentos: meu ? copia.encaminhamentos.filter(e => {
+        const resp = normalizarNome(e.Responsavel);
+        return resp && [normalizarNome(sessao.nome), meu].includes(resp) && emAberto(e);
+      }) : [],
       recomendacoes: nivel === "ADMIN" ? copia.recomendacoes : []
     },
     listas: { PERFIS: Object.keys(DEMO_NIVEL) }
@@ -2028,7 +2442,8 @@ function demoDetalhe(id) {
     ideia,
     interacoes: copia.interacoes.filter(x => x.ID_Ideia === ideia.ID_Ideia),
     curtidas: copia.curtidas.filter(x => x.ID_Ideia === ideia.ID_Ideia),
-    encaminhamentos: copia.encaminhamentos.filter(x => x.ID_Ideia === ideia.ID_Ideia)
+    encaminhamentos: copia.encaminhamentos.filter(x => x.ID_Ideia === ideia.ID_Ideia),
+    entregas: copia.entregas.filter(x => x.ID_Ideia === ideia.ID_Ideia).map(({ Anexo_Conteudo, ...en }) => en)
   };
 }
 
@@ -2066,6 +2481,11 @@ async function demoExecutar(req) {
 
   if (req.acao === "SAIR") { delete demoSessoes[req.token]; return ok(""); }
   if (req.acao === "LISTAR" || req.acao === "DETALHE_IDEIA") return { status: "success" };
+  if (req.acao === "BAIXAR_ANEXO") {
+    const en = demoBanco.entregas.find(x => x.ID_Entrega === req.idEntrega);
+    if (!en || !en.Anexo_Conteudo) return { status: "error", message: "Documento não encontrado." };
+    return { status: "success", nome: en.Anexo_Nome, tipo: en.Anexo_Tipo, conteudo: en.Anexo_Conteudo };
+  }
   if (req.acao === "ALTERAR_SENHA") {
     const u = demoBanco.usuarios.find(x => x.Apelido === sessao.apelido);
     if (!u) return { status: "error", message: "O acesso de observador/admin não tem senha própria." };
@@ -2095,7 +2515,7 @@ async function demoExecutar(req) {
       const id = "IDEIA-" + Date.now();
       const g = demoBanco.grupos.find(x => x.ID_Grupo === (req.idGrupo || GRUPO_PADRAO.ID_Grupo));
       if (!g || !grupoAtivo(g)) return { status: "error", message: "Grupo de trabalho não encontrado ou desativado." };
-      demoBanco.ideias.push({ ID_Ideia: id, ID_Grupo: g.ID_Grupo, Data_Criacao: agora, Titulo: req.titulo, Descricao: req.descricao, Status: "Em Debate", Link_Doc_Oficial: req.linkDoc || "", Autor: req.autor });
+      demoBanco.ideias.push({ ID_Ideia: id, ID_Grupo: g.ID_Grupo, Data_Criacao: agora, Titulo: req.titulo, Descricao: req.descricao, Status: "Em Debate", Autor: req.autor });
       return { ...ok("Pauta cadastrada!"), id };
     }
     case "EDITAR_IDEIA": {
@@ -2103,7 +2523,6 @@ async function demoExecutar(req) {
       if (req.titulo !== undefined) i.Titulo = req.titulo;
       if (req.descricao !== undefined) i.Descricao = req.descricao;
       if (req.status !== undefined) i.Status = req.status;
-      if (req.linkDoc !== undefined) i.Link_Doc_Oficial = req.linkDoc;
       return ok("Pauta atualizada!");
     }
     case "ADD_INTERACAO": {
@@ -2118,7 +2537,7 @@ async function demoExecutar(req) {
       return ok((pai ? "Comentário registrado!" : "Sugestão registrada!") + (citados.length ? " " + citados.map(a => "@" + a).join(", ") + " notificado(s)." : ""));
     }
     case "ADD_ENCAMINHAMENTO":
-      demoBanco.encaminhamentos.push({ ID_Encaminhamento: "ENC-" + Date.now(), ID_Ideia: req.idIdeia, Acao: req.acaoTexto, Responsavel: req.responsavel, Prazo: req.prazo, Status: "Pendente" });
+      demoBanco.encaminhamentos.push({ ID_Encaminhamento: "ENC-" + Date.now(), ID_Ideia: req.idIdeia, Acao: req.acaoTexto, Responsavel: req.responsavel, Prazo: req.prazo, Status: "Pendente", ID_Entregas: (req.idEntregas || []).join(",") });
       if (req.idCitacao) demoBanco.citacoes.find(c => c.ID_Citacao === req.idCitacao).Status = "Encaminhada";
       return ok("Encaminhamento registrado!");
     case "CRIAR_GRUPO": case "EDITAR_GRUPO": {
@@ -2203,9 +2622,58 @@ async function demoExecutar(req) {
     case "ATUALIZAR_CITACAO":
       demoBanco.citacoes.find(c => c.ID_Citacao === req.idCitacao).Status = req.status;
       return ok("Citação marcada como " + req.status.toLowerCase() + ".");
-    case "ATUALIZAR_ENCAMINHAMENTO":
-      demoBanco.encaminhamentos.find(e => e.ID_Encaminhamento === req.idEncaminhamento).Status = req.status;
+    case "ATUALIZAR_ENCAMINHAMENTO": {
+      const e = demoBanco.encaminhamentos.find(x => x.ID_Encaminhamento === req.idEncaminhamento);
+      if (req.status !== undefined) e.Status = req.status;
+      if (req.idEntregas !== undefined) e.ID_Entregas = req.idEntregas.join(",");
       return ok("Encaminhamento atualizado!");
+    }
+    case "ADD_ENTREGA": case "EDITAR_ENTREGA": {
+      const campos = {};
+      if (req.dataEntrega !== undefined) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(req.dataEntrega || "")) return { status: "error", message: "Informe a data da entrega." };
+        campos.Data_Entrega = req.dataEntrega;
+      }
+      if (req.responsavel !== undefined) campos.Responsavel = String(req.responsavel).trim();
+      if (req.comentarios !== undefined) campos.Comentarios = String(req.comentarios).trim();
+      if (req.status !== undefined) {
+        if (nivel !== "ADMIN") return { status: "error", message: "Apenas administradores mudam o status da entrega." };
+        campos.Status = req.status;
+      }
+      // Espelha vincularEntrega() do Code.gs
+      const vincular = idEnt => {
+        if (!Array.isArray(req.idEncaminhamentos)) return;
+        demoBanco.encaminhamentos.filter(e => e.ID_Ideia === req.idIdeia).forEach(e => {
+          const atuais = entregasDoEnc(e).filter(x => x !== idEnt);
+          e.ID_Entregas = (req.idEncaminhamentos.includes(e.ID_Encaminhamento) ? [...atuais, idEnt] : atuais).join(",");
+        });
+      };
+      if (req.acao === "ADD_ENTREGA") {
+        if (!campos.Data_Entrega) return { status: "error", message: "Informe a data da entrega." };
+        const idEnt = "ENT-" + Date.now();
+        demoBanco.entregas.push({ ID_Entrega: idEnt, ID_Ideia: req.idIdeia, Status: "Aguardando análise", Autor: req.autor, ...campos });
+        vincular(idEnt);
+        return { ...ok("Entrega registrada!"), idEntrega: idEnt };
+      }
+      const en = demoBanco.entregas.find(x => x.ID_Entrega === req.idEntrega);
+      if (!en) return { status: "error", message: "Entrega não encontrada." };
+      Object.assign(en, campos);
+      vincular(en.ID_Entrega);
+      return ok("Entrega atualizada!");
+    }
+    case "ANEXAR_ENTREGA": {
+      const en = demoBanco.entregas.find(x => x.ID_Entrega === req.idEntrega);
+      if (!en) return { status: "error", message: "Entrega não encontrada." };
+      if (en.Anexo_Nome) return { status: "error", message: "Esta entrega já tem um documento. Exclua o atual antes de anexar outro." };
+      Object.assign(en, { Anexo_Nome: req.nome, Anexo_Tipo: req.tipo, Anexo_Tamanho: Math.floor(req.conteudo.length * 3 / 4), Anexo_Por: req.autor, Anexo_Em: agora, Anexo_Conteudo: req.conteudo });
+      return ok("Documento anexado!");
+    }
+    case "EXCLUIR_ANEXO_ENTREGA": {
+      const en = demoBanco.entregas.find(x => x.ID_Entrega === req.idEntrega);
+      if (!en || !en.Anexo_Nome) return { status: "error", message: "Esta entrega não tem documento anexado." };
+      ["Anexo_Nome", "Anexo_Tipo", "Anexo_Tamanho", "Anexo_Por", "Anexo_Em", "Anexo_Conteudo"].forEach(k => delete en[k]);
+      return ok("Documento excluído.");
+    }
     case "IA_SUGERIR_PAUTAS":
       return { status: "success", ia: { provedor: "Demonstração", modelo: "", segundos: 0 }, sugestoes: [
         { titulo: "Plano de continuidade de TI", descricao: "Definir procedimentos para indisponibilidade de sistemas críticos e responsáveis por cada etapa.", justificativa: "Nenhuma pauta trata de contingência." },
@@ -2214,7 +2682,7 @@ async function demoExecutar(req) {
     case "IA_SUGERIR_ENCAMINHAMENTOS":
       return { status: "success", ia: { provedor: "Demonstração", modelo: "", segundos: 0 }, recomendacoesAplicadas: demoBanco.recomendacoes.filter(x => grupoAtivo(x) && (!x.ID_Grupo || x.ID_Grupo === grupoDe(ideia() || {}))).length, sintese: "O grupo concorda que é preciso alinhar o tema com a LGPD e sugere uma lista de ferramentas homologadas.", encaminhamentos: [
         { acao: "Elaborar minuta da lista de ferramentas de IA homologadas", responsavel: "Bruno", prazoDias: 15 },
-        { acao: "Redigir a primeira versão da política no Google Docs", responsavel: "", prazoDias: 30 }
+        { acao: "Redigir a primeira versão da política", responsavel: "", prazoDias: 30 }
       ] };
   }
   return { status: "error", message: "Ação desconhecida." };

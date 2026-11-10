@@ -1,0 +1,245 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1070" width="1400" height="1070" font-family="Inter, 'Segoe UI', Arial, sans-serif">
+  <title>Sistema de Apoio a Reuniões — fluxo da aplicação</title>
+  <defs>
+    <marker id="seta" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#7a1f2b"/>
+    </marker>
+    <marker id="setaCinza" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8a919c"/>
+    </marker>
+    <style>
+      .caixa { fill: #ffffff; stroke: #e2d6d8; stroke-width: 1.5; }
+      .tit { font-size: 16px; font-weight: 700; fill: #7a1f2b; }
+      .sub { font-size: 13px; font-weight: 700; fill: #1c2430; }
+      .txt { font-size: 12.5px; fill: #3d4552; }
+      .mini { font-size: 11.5px; fill: #5b6472; }
+      .chip { font-size: 11.5px; font-weight: 600; }
+      .num { font-size: 12px; font-weight: 700; fill: #ffffff; }
+      .linha { stroke: #7a1f2b; stroke-width: 1.8; fill: none; }
+      .linhaCinza { stroke: #8a919c; stroke-width: 1.5; fill: none; stroke-dasharray: 4 4; }
+    </style>
+  </defs>
+
+  <rect width="1400" height="1070" fill="#f7f4f4"/>
+
+  <!-- Título -->
+  <text x="60" y="48" font-size="24" font-weight="800" fill="#7a1f2b">Sistema de Apoio a Reuniões</text>
+  <text x="60" y="72" class="txt">Fluxo da aplicação · GTIC Hemobrás</text>
+
+  <!-- ===================== LINHA 1 ===================== -->
+  <!-- 1 Login -->
+  <rect x="60" y="100" width="250" height="120" rx="12" class="caixa"/>
+  <circle cx="84" cy="124" r="12" fill="#7a1f2b"/><text x="84" y="128" text-anchor="middle" class="num">1</text>
+  <text x="104" y="129" class="tit">Login</text>
+  <text x="80" y="156" class="txt">@apelido + senha própria</text>
+  <text x="80" y="176" class="txt">5 erros = bloqueio de 10 min</text>
+  <text x="80" y="196" class="txt">Sessão vale 6 horas</text>
+
+  <path d="M310 160 H366" class="linha" marker-end="url(#seta)"/>
+
+  <!-- Perfis -->
+  <rect x="370" y="100" width="570" height="120" rx="12" class="caixa"/>
+  <text x="390" y="129" class="tit">Perfis de acesso</text>
+  <rect x="388" y="142" width="176" height="64" rx="8" fill="#f6e8ea"/>
+  <text x="400" y="162" class="sub">Administrador</text>
+  <text x="400" y="180" class="mini">Tudo + usuários, GTs, IA</text>
+  <text x="400" y="196" class="mini">Só ele aprova entregas</text>
+  <rect x="573" y="142" width="176" height="64" rx="8" fill="#e6f0fb"/>
+  <text x="585" y="162" class="sub">Colaborador</text>
+  <text x="585" y="180" class="mini">Pautas, sugestões,</text>
+  <text x="585" y="196" class="mini">encaminhamentos, entregas</text>
+  <rect x="758" y="142" width="166" height="64" rx="8" fill="#eef0f3"/>
+  <text x="770" y="162" class="sub">Leitura</text>
+  <text x="770" y="180" class="mini">Só acompanha;</text>
+  <text x="770" y="196" class="mini">pode curtir e comentar</text>
+
+  <!-- Sino -->
+  <rect x="970" y="100" width="370" height="120" rx="12" class="caixa"/>
+  <rect x="990" y="113" width="26" height="24" rx="6" fill="#ffcf33"/>
+  <path d="M997 130 v-5 a6 6 0 0 1 12 0 v5 l2 2 h-16 z M1001 134 a2 2 0 0 0 4 0" fill="none" stroke="#3b2a00" stroke-width="1.6" stroke-linejoin="round"/>
+  <text x="1026" y="129" class="tit">Sino · Para você</text>
+  <text x="990" y="156" class="txt"><tspan font-weight="700" fill="#8a6100">Amarelo</tspan> = encaminhamento pendente</text>
+  <text x="990" y="174" class="txt">em que você é o responsável</text>
+  <text x="990" y="194" class="txt">+ citações @apelido pendentes</text>
+  <text x="990" y="210" class="mini">"Ver na pauta" abre a pauta no GT certo</text>
+
+  <!-- ===================== LINHA 2 ===================== -->
+  <path d="M185 220 V256" class="linha" marker-end="url(#seta)"/>
+
+  <!-- 2 Lista de GTs -->
+  <rect x="60" y="260" width="250" height="140" rx="12" class="caixa"/>
+  <circle cx="84" cy="284" r="12" fill="#7a1f2b"/><text x="84" y="288" text-anchor="middle" class="num">2</text>
+  <text x="104" y="289" class="tit">Lista de GTs</text>
+  <text x="80" y="316" class="txt">Cada card mostra pautas ativas,</text>
+  <text x="80" y="334" class="txt">em debate, ações em aberto,</text>
+  <text x="80" y="352" class="txt">atrasadas e entregas a analisar</text>
+  <text x="80" y="380" class="mini">Clique no card para abrir o GT</text>
+
+  <path d="M310 330 H366" class="linha" marker-end="url(#seta)"/>
+
+  <!-- 3 Painel do GT -->
+  <rect x="370" y="260" width="970" height="140" rx="12" class="caixa"/>
+  <circle cx="394" cy="284" r="12" fill="#7a1f2b"/><text x="394" y="288" text-anchor="middle" class="num">3</text>
+  <text x="414" y="289" class="tit">Painel do GT · indicadores clicáveis</text>
+  <g class="chip">
+    <rect x="388" y="304" width="126" height="44" rx="8" fill="#f7f4f4" stroke="#e2d6d8"/>
+    <text x="451" y="331" text-anchor="middle" fill="#1c2430">Pautas ativas</text>
+    <rect x="522" y="304" width="126" height="44" rx="8" fill="#f7f4f4" stroke="#e2d6d8"/>
+    <text x="585" y="331" text-anchor="middle" fill="#1c2430">Em debate</text>
+    <rect x="656" y="304" width="126" height="44" rx="8" fill="#f7f4f4" stroke="#e2d6d8"/>
+    <text x="719" y="331" text-anchor="middle" fill="#1c2430">Enc. em aberto</text>
+    <rect x="790" y="304" width="126" height="44" rx="8" fill="#fdecec" stroke="#f3c9c9"/>
+    <text x="853" y="331" text-anchor="middle" fill="#b42318">Enc. atrasados</text>
+    <rect x="924" y="304" width="126" height="44" rx="8" fill="#e3f4ea" stroke="#bfe3cd"/>
+    <text x="987" y="331" text-anchor="middle" fill="#1e7a4c">Enc. concluídos</text>
+    <rect x="1058" y="304" width="132" height="44" rx="8" fill="#fdf3d8" stroke="#f0dca0"/>
+    <text x="1124" y="331" text-anchor="middle" fill="#8a6100">Entregas a analisar</text>
+    <rect x="1198" y="304" width="126" height="44" rx="8" fill="#e3f4ea" stroke="#bfe3cd"/>
+    <text x="1261" y="331" text-anchor="middle" fill="#1e7a4c">Entregas aprovadas</text>
+  </g>
+  <text x="390" y="374" class="txt">Clique num indicador → lista organizada como <tspan font-weight="700">pauta → encaminhamento → entregas</tspan></text>
+  <text x="390" y="392" class="mini">Também no painel: buscar e filtrar pautas · + Nova pauta · Sugerir pautas com IA · Relatório do GT</text>
+
+  <path d="M700 400 V426" class="linha" marker-end="url(#seta)"/>
+  <text x="712" y="418" class="mini">abre uma pauta</text>
+
+  <!-- ===================== 4 PAUTA ===================== -->
+  <rect x="60" y="430" width="1280" height="440" rx="14" fill="#fbf6f7" stroke="#7a1f2b" stroke-width="1.5"/>
+  <circle cx="86" cy="458" r="12" fill="#7a1f2b"/><text x="86" y="462" text-anchor="middle" class="num">4</text>
+  <text x="106" y="464" class="tit">Pauta</text>
+
+  <!-- ciclo da pauta -->
+  <g class="chip">
+    <rect x="170" y="446" width="88" height="26" rx="13" fill="#e6f0fb"/><text x="214" y="463" text-anchor="middle" fill="#1f5fa8">Em Debate</text>
+    <path d="M262 459 H278" class="linha" marker-end="url(#seta)"/>
+    <rect x="282" y="446" width="96" height="26" rx="13" fill="#fdf3d8"/><text x="330" y="463" text-anchor="middle" fill="#8a6100">Em Redação</text>
+    <path d="M382 459 H398" class="linha" marker-end="url(#seta)"/>
+    <rect x="402" y="446" width="80" height="26" rx="13" fill="#e3f4ea"/><text x="442" y="463" text-anchor="middle" fill="#1e7a4c">Aprovada</text>
+    <text x="490" y="463" class="mini">ou</text>
+    <rect x="510" y="446" width="84" height="26" rx="13" fill="#eef0f3"/><text x="552" y="463" text-anchor="middle" fill="#555c66">Arquivada</text>
+  </g>
+  <text x="1315" y="463" text-anchor="end" class="mini">Relatório da pauta: imprimir ou salvar em PDF</text>
+
+  <!-- Coluna: Sugestões -->
+  <rect x="85" y="490" width="380" height="355" rx="12" class="caixa"/>
+  <rect x="85" y="490" width="380" height="40" rx="12" fill="#7a1f2b"/>
+  <rect x="85" y="514" width="380" height="16" fill="#7a1f2b"/>
+  <text x="105" y="516" font-size="14" font-weight="700" fill="#fff">Aba Sugestões</text>
+
+  <rect x="105" y="548" width="340" height="50" rx="8" fill="#fdf8e6" stroke="#f0dca0"/>
+  <text x="121" y="569" class="sub">Sugestão</text>
+  <text x="121" y="587" class="mini">qualquer colaborador registra na pauta</text>
+  <path d="M275 598 V618" class="linha" marker-end="url(#seta)"/>
+  <rect x="105" y="622" width="340" height="50" rx="8" fill="#f7f4f4" stroke="#e2d6d8"/>
+  <text x="121" y="643" class="sub">Comentários e curtidas</text>
+  <text x="121" y="661" class="mini">cada sugestão tem os seus; 1 curtida por pessoa</text>
+  <path d="M275 672 V692" class="linha" marker-end="url(#seta)"/>
+  <rect x="105" y="696" width="340" height="50" rx="8" fill="#f7f4f4" stroke="#e2d6d8"/>
+  <text x="121" y="717" class="sub">@apelido no texto = citação</text>
+  <text x="121" y="735" class="mini">a pessoa citada é avisada no sino</text>
+  <text x="105" y="774" class="txt">Citação no sino:</text>
+  <text x="105" y="792" class="mini">criar encaminhamento ou marcar como resolvida</text>
+  <text x="105" y="822" class="mini">Excluir sugestão/comentário: só usuários</text>
+  <text x="105" y="838" class="mini">autorizados, sempre com senha</text>
+
+  <!-- Coluna: Encaminhamentos -->
+  <rect x="505" y="490" width="380" height="355" rx="12" class="caixa"/>
+  <rect x="505" y="490" width="380" height="40" rx="12" fill="#7a1f2b"/>
+  <rect x="505" y="514" width="380" height="16" fill="#7a1f2b"/>
+  <text x="525" y="516" font-size="14" font-weight="700" fill="#fff">Aba Encaminhamentos</text>
+
+  <rect x="525" y="548" width="340" height="50" rx="8" fill="#f7f4f4" stroke="#e2d6d8"/>
+  <text x="541" y="569" class="sub">Gestor cria o encaminhamento</text>
+  <text x="541" y="587" class="mini">ação*, responsável*, prazo</text>
+  <rect x="525" y="606" width="340" height="40" rx="8" fill="#f1ebfb" stroke="#ddd0f3"/>
+  <text x="541" y="631" class="txt" fill="#5b2fa0">✦ A IA sintetiza a discussão e sugere</text>
+
+  <text x="525" y="672" class="txt">Status:</text>
+  <g class="chip">
+    <rect x="525" y="682" width="78" height="26" rx="13" fill="#fdf3d8"/><text x="564" y="699" text-anchor="middle" fill="#8a6100">Pendente</text>
+    <path d="M606 695 H620" class="linha" marker-end="url(#seta)"/>
+    <rect x="623" y="682" width="108" height="26" rx="13" fill="#e6f0fb"/><text x="677" y="699" text-anchor="middle" fill="#1f5fa8">Em Andamento</text>
+    <path d="M734 695 H748" class="linha" marker-end="url(#seta)"/>
+    <rect x="751" y="682" width="92" height="26" rx="13" fill="#e3f4ea"/><text x="797" y="699" text-anchor="middle" fill="#1e7a4c">Concluído</text>
+    <rect x="751" y="714" width="92" height="26" rx="13" fill="#eef0f3"/><text x="797" y="731" text-anchor="middle" fill="#555c66">Cancelado</text>
+  </g>
+  <text x="525" y="760" class="mini">Em aberto com prazo vencido = <tspan fill="#b42318" font-weight="700">atrasado</tspan></text>
+
+  <rect x="525" y="780" width="120" height="34" rx="8" fill="#ffffff" stroke="#7a1f2b" stroke-width="1.5"/>
+  <text x="585" y="802" text-anchor="middle" class="chip" fill="#7a1f2b">2 entregas</text>
+  <text x="525" y="834" class="mini">Botão em cada linha: quantas entregas ele tem</text>
+
+  <!-- setas entre Encaminhamentos e Entregas -->
+  <path d="M645 797 H921" class="linha" marker-end="url(#seta)"/>
+  <text x="765" y="789" text-anchor="middle" class="mini" font-weight="600" fill="#7a1f2b">abre as entregas no lugar da lista</text>
+  <path d="M921 560 H889" class="linhaCinza" marker-end="url(#setaCinza)"/>
+  <text x="905" y="552" text-anchor="middle" class="mini">voltar</text>
+
+  <!-- Coluna: Entregas -->
+  <rect x="925" y="490" width="390" height="355" rx="12" class="caixa"/>
+  <rect x="925" y="490" width="390" height="40" rx="12" fill="#7a1f2b"/>
+  <rect x="925" y="514" width="390" height="16" fill="#7a1f2b"/>
+  <text x="945" y="516" font-size="14" font-weight="700" fill="#fff">Entregas do encaminhamento</text>
+
+  <rect x="945" y="546" width="168" height="28" rx="7" fill="#f7f4f4" stroke="#e2d6d8"/>
+  <text x="1029" y="565" text-anchor="middle" class="chip" fill="#1c2430">← Voltar aos encaminh.</text>
+  <rect x="1123" y="546" width="172" height="28" rx="7" fill="#7a1f2b"/>
+  <text x="1209" y="565" text-anchor="middle" class="chip" fill="#fff">+ Nova entrega (popup)</text>
+
+  <rect x="945" y="586" width="350" height="50" rx="8" fill="#f7f4f4" stroke="#e2d6d8"/>
+  <text x="961" y="607" class="sub">Cadastro da entrega</text>
+  <text x="961" y="625" class="mini">data* · responsável · comentários · documento</text>
+
+  <text x="945" y="662" class="txt">Status (só o administrador muda):</text>
+  <g class="chip">
+    <rect x="945" y="672" width="140" height="26" rx="13" fill="#fdf3d8"/><text x="1015" y="689" text-anchor="middle" fill="#8a6100">Aguardando análise</text>
+    <path d="M1088 685 H1104" class="linha" marker-end="url(#seta)"/>
+    <rect x="1107" y="672" width="84" height="26" rx="13" fill="#e3f4ea"/><text x="1149" y="689" text-anchor="middle" fill="#1e7a4c">Aprovado</text>
+  </g>
+
+  <rect x="945" y="714" width="350" height="68" rx="8" fill="#eef4fd" stroke="#cfe0f6"/>
+  <text x="961" y="735" class="sub">Documento (1 por entrega, até 10 MB)</text>
+  <text x="961" y="753" class="mini">guardado no Google Drive, em pasta privada</text>
+  <text x="961" y="770" class="mini">baixar · excluir (com senha) · anexar outro</text>
+  <text x="945" y="808" class="mini">A entrega nova já nasce vinculada</text>
+  <text x="945" y="824" class="mini">ao encaminhamento aberto</text>
+
+  <!-- ===================== POR TRÁS ===================== -->
+  <path d="M60 896 H1340" stroke="#c9bcbf" stroke-width="1" stroke-dasharray="6 6"/>
+  <rect x="60" y="886" width="104" height="20" rx="10" fill="#f7f4f4"/>
+  <text x="70" y="901" class="mini" font-weight="700">POR TRÁS</text>
+
+  <rect x="60" y="918" width="300" height="120" rx="12" class="caixa"/>
+  <text x="80" y="946" class="sub">Google Apps Script</text>
+  <text x="80" y="968" class="mini">API única (POST) que o navegador chama</text>
+  <text x="80" y="986" class="mini">Login, sessão, senhas com hash e</text>
+  <text x="80" y="1004" class="mini">regras de quem pode fazer o quê</text>
+  <text x="80" y="1022" class="mini">Devolve os dados já atualizados</text>
+
+  <path d="M360 978 H396" class="linha" marker-start="url(#seta)" marker-end="url(#seta)"/>
+
+  <rect x="400" y="918" width="400" height="120" rx="12" class="caixa"/>
+  <text x="420" y="946" class="sub">Planilha Google · uma aba por tipo</text>
+  <text x="420" y="968" class="mini">Ideias_GT (pautas) · Interacoes_GT · Curtidas_GT</text>
+  <text x="420" y="986" class="mini">Encaminhamentos_GT · Entregas_GT · Citacoes_GT</text>
+  <text x="420" y="1004" class="mini">Grupos_GT · Usuarios_GT · Recomendacoes_IA</text>
+  <text x="420" y="1022" class="mini">Colunas novas são criadas sozinhas</text>
+
+  <path d="M800 978 H836" class="linha" marker-start="url(#seta)" marker-end="url(#seta)"/>
+
+  <rect x="840" y="918" width="230" height="120" rx="12" class="caixa"/>
+  <text x="860" y="946" class="sub">Google Drive</text>
+  <text x="860" y="968" class="mini">Documentos das entregas</text>
+  <text x="860" y="986" class="mini">Pasta não compartilhada:</text>
+  <text x="860" y="1004" class="mini">download só com login</text>
+  <text x="860" y="1022" class="mini">Excluído vai para a lixeira</text>
+
+  <path d="M1070 978 H1106" class="linha" marker-start="url(#seta)" marker-end="url(#seta)"/>
+
+  <rect x="1110" y="918" width="230" height="120" rx="12" class="caixa"/>
+  <text x="1130" y="946" class="sub">IA</text>
+  <text x="1130" y="968" class="mini">Gemini, com Groq de reserva</text>
+  <text x="1130" y="986" class="mini">Sugere pautas e encaminhamentos</text>
+  <text x="1130" y="1004" class="mini">Segue os metadados do admin</text>
+  <text x="1130" y="1022" class="mini">Pede a senha da IA</text>
+</svg>
