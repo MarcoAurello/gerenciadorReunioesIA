@@ -172,7 +172,40 @@ Basta ter uma das chaves; com as duas, uma cobre a outra.
 
 O frontend é estático: `index.html`, `style.css`, `app.js`, `logo.svg` e a pasta `docs/`. O backend continua no Apps Script, com a Planilha, o Drive e o Gemini, e não vai para o servidor.
 
-### No servidor interno, com Docker
+### No servidor interno, junto com o Letramento em IA (recomendado)
+
+O servidor interno atende os dois sistemas no mesmo endereço:
+
+| Endereço | Sistema |
+|---|---|
+| `http://<servidor>/` | Letramento em IA Hemobrás ([repositório](https://github.com/MarcoAurello/letramentoEmIAHemobras)) |
+| `http://<servidor>/sistemadereunioes/` | Sistema de Apoio a Reuniões |
+
+A pasta [`servidor/`](servidor/) tem um `docker-compose.yml` com três contêineres. O **gateway** (Nginx) é o único exposto e encaminha cada endereço para o contêiner certo. Os outros dois são construídos **direto do GitHub**, a partir do `main` de cada repositório, então não é preciso copiar arquivos para o servidor.
+
+```bash
+git clone https://github.com/MarcoAurello/gerenciadorReunioesIA.git
+cd gerenciadorReunioesIA/servidor
+docker compose up -d --build
+```
+
+Para usar outra porta (o padrão é 80): `PORTA=8080 docker compose up -d --build`.
+
+**Para publicar uma versão nova** de qualquer um dos dois sistemas, depois do push no GitHub:
+
+```bash
+cd gerenciadorReunioesIA/servidor
+git pull
+docker compose build --no-cache letramento reunioes
+docker compose up -d
+```
+
+**Cuidados:**
+- **Novos arquivos do letramento:** o repositório do letramento não tem Dockerfile, então os arquivos copiados estão listados no `dockerfile_inline` do `servidor/docker-compose.yml` (`index.html`, `formulario-hemobras.html`, os `.pdf` e `pessoas.xlsx`). Se o site ganhar arquivos novos, acrescente-os ali.
+- **Endereço sem barra:** `/sistemadereunioes` sem a barra final redireciona para `/sistemadereunioes/`, mantendo parâmetros como `?demo`. Os redirecionamentos internos ganham o prefixo de volta (`proxy_redirect`).
+- **Mesmo domínio:** os dois sistemas compartilham o endereço. Isso não causa conflito, porque este sistema guarda dados no navegador só com chaves que começam com `sre_`, e o letramento não guarda nada.
+
+### Só este sistema, com Docker
 
 A imagem usa o Nginx e contém só os arquivos do frontend. `Code.gs` e o `LEIAME.md` ficam de fora.
 
