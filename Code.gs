@@ -11,12 +11,13 @@
  *   Observador sem cadastro: usuário em branco + SENHA_LEITURA (opcional;
  *   deixe a propriedade vazia para desativar).
  *
- * Propriedades do script: SENHA_ADMIN, SENHA_LEITURA, SENHA_IA (botões de IA), GEMINI_API_KEY...
+ * Propriedades do script: SENHA_ADMIN, SENHA_LEITURA, GEMINI_API_KEY...
+ * Os botões de IA pedem a senha de login de quem está usando.
  * O login devolve um token de sessão (6 h); a senha não é reenviada.
  * Toda comunicação é via POST (Content-Type text/plain).
  */
 
-// Sem senhas no código: SENHA_ADMIN, SENHA_LEITURA e SENHA_IA vêm só das Propriedades do script.
+// Sem senhas no código: SENHA_ADMIN e SENHA_LEITURA vêm só das Propriedades do script.
 // configurar() gera uma SENHA_ADMIN aleatória se ainda não houver nenhuma.
 const SESSAO_SEGUNDOS = 6 * 60 * 60;
 const MAX_TENTATIVAS = 5;
@@ -183,9 +184,9 @@ function doPost(e) {
     // O autor é sempre quem está logado — não vem do navegador
     req.autor = sessao.nome;
 
-    // IA não grava nada, então dispensa o lock; mas exige a senha da IA (propriedade SENHA_IA)
+    // IA não grava nada, então dispensa o lock; mas exige a senha de login de quem está usando
     if (acao === "IA_SUGERIR_PAUTAS" || acao === "IA_SUGERIR_ENCAMINHAMENTOS") {
-      const falhaIA = conferirSenhaIA(req.senhaIA);
+      const falhaIA = confirmarSenha(sessao, req.senhaIA);
       if (falhaIA) return respostaJSON({ status: "error", codigo: "SENHA_IA", message: falhaIA });
       return acao === "IA_SUGERIR_PAUTAS" ? iaSugerirPautas(req) : iaSugerirEncaminhamentos(req);
     }
@@ -731,9 +732,9 @@ function login(req) {
  */
 function confirmarSenha(sessao, senha) {
   senha = String(senha || "");
-  if (!senha) return "Digite a sua senha para confirmar a exclusão.";
+  if (!senha) return "Digite a sua senha para confirmar.";
   const apelido = String(sessao.apelido || "").toLowerCase();
-  if (!apelido) return "O acesso de observador não pode excluir.";
+  if (!apelido) return "O acesso de observador não tem senha própria.";
 
   const cache = CacheService.getScriptCache();
   const chaveFalhas = "falhas_" + apelido;
@@ -1151,25 +1152,6 @@ function chamarIA(prompt) {
   return { erro: erros.join(" | ") };
 }
 
-/**
- * Senha para usar a IA, guardada na propriedade SENHA_IA (fora do código, que é público).
- * Erros contam para um bloqueio de 10 minutos, como no login. Devolve a mensagem de erro ou "".
- */
-function conferirSenhaIA(senha) {
-  const certa = PropertiesService.getScriptProperties().getProperty("SENHA_IA") || "";
-  if (!certa) return "A senha da IA não foi configurada. Cadastre SENHA_IA nas Propriedades do script.";
-  senha = String(senha || "");
-  if (!senha) return "Digite a senha da IA.";
-  const cache = CacheService.getScriptCache();
-  const falhas = Number(cache.get("falhas_senha_ia") || 0);
-  if (falhas >= MAX_TENTATIVAS) return "Muitas tentativas incorretas da senha da IA. Aguarde 10 minutos.";
-  if (senha !== certa) {
-    cache.put("falhas_senha_ia", String(falhas + 1), BLOQUEIO_SEGUNDOS);
-    return "Senha da IA incorreta.";
-  }
-  return "";
-}
-
 /** Qual IA respondeu e em quanto tempo (mostrado discretamente na tela). */
 function infoIA(r) {
   return { provedor: r.provedor, modelo: r.modelo, segundos: r.segundos };
@@ -1190,12 +1172,19 @@ function iaSugerirPautas(req) {
   const pendentes = encs.filter(function (e) { return e.Status === "Pendente" || e.Status === "Em Andamento"; })
     .map(function (e) { return "- " + e.Acao + " (resp.: " + e.Responsavel + ")"; })
     .join("\n") || "(nenhum)";
+  const regras = recomendacoesDoGrupo(ss, idGrupo);
+  const recomendacoes = regras
+    .map(function (r) { return "- " + r.Titulo + ": " + r.Texto; })
+    .join("\n");
 
   const prompt =
     "Você assessora o grupo de trabalho \"" + grupo.Nome + "\"" + (grupo.Descricao ? " (" + grupo.Descricao + ")" : "") +
     ", que organiza reuniões, pautas e encaminhamentos.\n" +
     "Sugira de 3 a 5 NOVAS pautas para as próximas reuniões, sem repetir as existentes.\n" +
     (req.tema ? "Foco solicitado pelo grupo: " + texto(req.tema, 500) + "\n" : "") +
+    (recomendacoes
+      ? "\nSiga também estas recomendações definidas pela coordenação ao sugerir as pautas:\n" + recomendacoes + "\n"
+      : "") +
     "\nPautas já cadastradas:\n" + existentes +
     "\n\nEncaminhamentos em aberto:\n" + pendentes +
     "\n\nResponda em português do Brasil, em JSON no formato " +
@@ -1203,7 +1192,7 @@ function iaSugerirPautas(req) {
 
   const r = chamarIA(prompt);
   if (r.erro) return erro(r.erro);
-  return respostaJSON({ status: "success", sugestoes: (r.json.sugestoes || []).slice(0, 5), ia: infoIA(r) });
+  return respostaJSON({ status: "success", sugestoes: (r.json.sugestoes || []).slice(0, 5), recomendacoesAplicadas: regras.length, ia: infoIA(r) });
 }
 
 function iaSugerirEncaminhamentos(req) {

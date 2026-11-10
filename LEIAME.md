@@ -70,7 +70,7 @@ Na planilha, as entregas ficam na aba `Entregas_GT`, e o vínculo fica na coluna
 
 **Ciclo do encaminhamento:** `Pendente` → `Em Andamento` → `Concluído` ou `Cancelado`. Um encaminhamento em aberto com prazo vencido aparece como **atrasado** em vermelho.
 
-**Senha da IA:** os botões **✦ Sugerir pautas com IA** e **✦ Sugerir com IA** pedem uma senha no primeiro uso, e o sistema lembra dela até a página ser recarregada ou a pessoa sair. A senha é conferida no servidor e fica na propriedade `SENHA_IA` do script, nunca no código (o repositório é público). Erros contam para um bloqueio de 10 minutos. No modo demonstração, a senha é `demo-ia`.
+**Senha para usar a IA:** os botões **✦ Sugerir pautas com IA** e **✦ Sugerir com IA** pedem a **senha de login de quem está usando** no primeiro uso. O sistema lembra dela até a página ser recarregada ou a pessoa sair. A senha é conferida no servidor, e os erros contam para o mesmo bloqueio de 10 minutos do login. Não existe mais a propriedade `SENHA_IA`.
 
 **Relatório da pauta:** o botão **Relatório**, no topo de cada pauta, monta um documento com os dados da pauta, os números (sugestões, comentários, curtidas e encaminhamentos), todas as sugestões com quem curtiu e os comentários de cada uma, os comentários gerais antigos e a tabela de encaminhamentos (os atrasados em vermelho). Se a IA tiver gerado uma síntese na sessão, ela também entra. O relatório abre dentro do sistema, com os botões **Imprimir / Salvar PDF** e **Abrir em nova aba**. Qualquer perfil pode gerar.
 

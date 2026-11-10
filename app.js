@@ -1213,12 +1213,12 @@ async function adotarPauta(idx) {
 let senhaIA = "";
 
 /**
- * Chama uma ação de IA com a senha da IA. Pede a senha se ainda não foi digitada e,
+ * Chama uma ação de IA com a senha de login de quem está usando. Pede a senha se ainda não foi digitada e,
  * se o servidor recusar, esquece a senha para pedir de novo na próxima vez.
  */
 async function apiComSenhaIA(acao, dados) {
   if (!senhaIA) {
-    const senha = await pedirSenha({ titulo: "Senha da IA", mensagem: "", rotulo: "Digite a senha para usar a IA", botao: "Usar a IA" });
+    const senha = await pedirSenha({ titulo: "Confirmar para usar a IA", mensagem: "", rotulo: "Digite a sua senha de login", botao: "Usar a IA" });
     if (senha === null) return null;
     senhaIA = senha;
   }
@@ -2494,9 +2494,11 @@ async function demoExecutar(req) {
     u.senha = req.novaSenha;
     return ok("Senha alterada!");
   }
-  // No demo a senha da IA é "demo-ia"; a real fica só na propriedade SENHA_IA do Code.gs
-  if (/^IA_/.test(req.acao) && nivel !== "LEITURA" && req.senhaIA !== "demo-ia") {
-    return { status: "error", codigo: "SENHA_IA", message: req.senhaIA ? "Senha da IA incorreta." : "Digite a senha da IA." };
+  // A IA pede a senha de login de quem está usando (espelha confirmarSenha do Code.gs)
+  if (/^IA_/.test(req.acao) && nivel !== "LEITURA") {
+    const u = demoBanco.usuarios.find(x => x.Apelido === sessao.apelido);
+    const ok = sessao.apelido === "admin" ? req.senhaIA === "demo-admin" : !!u && u.senha === req.senhaIA;
+    if (!ok) return { status: "error", codigo: "SENHA_IA", message: req.senhaIA ? "Senha incorreta." : "Digite a sua senha para confirmar." };
   }
   if (/^EXCLUIR_/.test(req.acao)) {
     if (!req.senha) return { status: "error", message: "Digite a sua senha para confirmar a exclusão." };
