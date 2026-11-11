@@ -281,6 +281,29 @@
   <!-- ============ MODAL RECOMENDAÇÕES DA IA ============ -->
   <dialog id="modalRecomendacoes" class="modal modal-largo">
     <h2 id="recTitulo">Metadados para a IA</h2>
+    <!-- Chaves da IA: só na tela geral (não na de um GT) e fora do modo demonstração -->
+    <form id="formChavesIA" class="chaves-ia" autocomplete="off" hidden>
+      <h3>Chaves da IA</h3>
+      <p class="nota-ia" style="margin:0">A chave fica guardada no servidor, cifrada, e nunca volta para o navegador. Basta uma; com as duas, uma cobre a outra.</p>
+      <div class="linha">
+        <label>Google Gemini <span class="estado-chave" id="estadoGemini"></span>
+          <input type="password" id="chaveGemini" placeholder="Cole a chave (começa com AIza)" autocomplete="new-password" spellcheck="false">
+          <small><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Gerar chave no Google AI Studio</a></small>
+        </label>
+        <label>Groq <span class="dica-mencao">(reserva, opcional)</span> <span class="estado-chave" id="estadoGroq"></span>
+          <input type="password" id="chaveGroq" placeholder="Cole a chave (começa com gsk_)" autocomplete="new-password" spellcheck="false">
+          <small><a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">Gerar chave no Groq</a></small>
+        </label>
+      </div>
+      <div class="rodape">
+        <label class="principal-ia">Usar primeiro
+          <select id="iaPrincipal"><option value="gemini">Gemini</option><option value="groq">Groq</option></select>
+        </label>
+        <span class="resultado-teste" id="resultadoTesteIA" role="status"></span>
+        <button type="button" class="btn btn-secundario" id="btnTestarIA">Testar IA</button>
+        <button type="submit" class="btn btn-primario">Salvar chaves</button>
+      </div>
+    </form>
     <p class="nota-ia">Quando alguém usa <strong>✦ Sugerir com IA</strong> nos encaminhamentos, os metadados ativos seguem junto com a pauta e os comentários. Valem os marcados para <strong>todos os GTs</strong> e os do GT da pauta.</p>
     <p class="nota-ia" id="recNotaGerais" hidden></p>
     <form id="formRecomendacao" class="form-inline" style="margin-top:0;padding-top:0;border-top:none" autocomplete="off">

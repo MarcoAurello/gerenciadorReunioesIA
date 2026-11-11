@@ -69,6 +69,8 @@ let timerLoading = null;
 const LOADING_ACAO = {
   LOGIN: "Conferindo usuário e senha...",
   LISTAR: "Buscando as pautas...",
+  SALVAR_CONFIG_IA: "Salvando as chaves da IA...",
+  TESTAR_IA: "Perguntando à IA...",
   CRIAR_IDEIA: "Salvando a pauta...",
   EDITAR_IDEIA: "Salvando as alterações da pauta...",
   ADD_INTERACAO: "Registrando...",
@@ -189,10 +191,14 @@ const ROTAS = {
   EDITAR_RECOMENDACAO: d => ["PUT", `recomendacoes/${enc(d.idRecomendacao)}`, d],
   EXCLUIR_RECOMENDACAO: d => ["DELETE", `recomendacoes/${enc(d.idRecomendacao)}`, d],
   IA_SUGERIR_PAUTAS: d => ["POST", "ia/pautas", d],
-  IA_SUGERIR_ENCAMINHAMENTOS: d => ["POST", `ideias/${enc(d.idIdeia)}/ia/encaminhamentos`, d]
+  IA_SUGERIR_ENCAMINHAMENTOS: d => ["POST", `ideias/${enc(d.idIdeia)}/ia/encaminhamentos`, d],
+  CONFIG_IA: () => ["GET", "configuracoes/ia"],
+  SALVAR_CONFIG_IA: d => ["PUT", "configuracoes/ia", d],
+  TESTAR_IA: () => ["POST", "configuracoes/ia/testar"]
 };
-// Ações que não gravam: a resposta vai direto para a tela
-const SO_LEITURA = new Set(["LOGIN", "SAIR", "ALTERAR_SENHA", "LISTAR", "DETALHE_IDEIA", "BAIXAR_ANEXO", "IA_SUGERIR_PAUTAS", "IA_SUGERIR_ENCAMINHAMENTOS"]);
+// Ações que não mudam pautas nem cadastros: a resposta vai direto para a tela, sem recarregar o resumo
+const SO_LEITURA = new Set(["LOGIN", "SAIR", "ALTERAR_SENHA", "LISTAR", "DETALHE_IDEIA", "BAIXAR_ANEXO", "IA_SUGERIR_PAUTAS",
+  "IA_SUGERIR_ENCAMINHAMENTOS", "CONFIG_IA", "SALVAR_CONFIG_IA", "TESTAR_IA"]);
 
 /** Uma requisição à API; o corpo JSON ganha status "success"/"error" conforme o código HTTP. */
 async function chamarRota(metodo, caminho, corpo) {
@@ -1983,8 +1989,60 @@ function abrirRecomendacoes(idGrupo = null) {
   $("#formRecomendacao .linha").style.gridTemplateColumns = recGrupoFixo ? "1fr" : "";
   limparFormRecomendacao();
   renderizarRecomendacoes();
+  // Chaves da IA valem para o sistema todo: só na tela geral, e não existem no modo demonstração
+  $("#formChavesIA").hidden = !!recGrupoFixo || MODO_DEMO;
+  if (!$("#formChavesIA").hidden) carregarChavesIA();
   $("#modalRecomendacoes").showModal();
   $("#rTitulo").focus();
+}
+
+/* ---------- Chaves da IA (administrador) ---------- */
+
+function mostrarEstadoChave(el, info) {
+  el.className = "estado-chave" + (info && info.cadastrada ? " ok" : "");
+  el.textContent = !info || !info.cadastrada ? "· não cadastrada"
+    : `· cadastrada ${info.final}${info.origem === "servidor" ? " (no .env do servidor)" : ""}`;
+}
+
+async function carregarChavesIA() {
+  $("#formChavesIA").reset();
+  $("#resultadoTesteIA").textContent = "";
+  const r = await api("CONFIG_IA", {}, { silencioso: true });
+  if (sessaoExpirou(r)) return;
+  if (r.status !== "success") return aviso(r.message || "Não foi possível ler a configuração da IA.", true);
+  mostrarEstadoChave($("#estadoGemini"), r.gemini);
+  mostrarEstadoChave($("#estadoGroq"), r.groq);
+  $("#iaPrincipal").value = r.principal || "gemini";
+  $("#iaPrincipal").dataset.salvo = $("#iaPrincipal").value;
+}
+
+async function salvarChavesIA(ev) {
+  ev.preventDefault();
+  const dados = {};
+  const gemini = $("#chaveGemini").value.trim();
+  const groq = $("#chaveGroq").value.trim();
+  if (gemini) dados.geminiKey = gemini;
+  if (groq) dados.groqKey = groq;
+  if ($("#iaPrincipal").value !== $("#iaPrincipal").dataset.salvo) dados.principal = $("#iaPrincipal").value;
+  if (!Object.keys(dados).length) return aviso("Cole uma chave ou mude a IA principal antes de salvar.", true);
+
+  const senha = await pedirSenha({ titulo: "Confirmar alteração", mensagem: "As chaves da IA valem para todo o sistema.", rotulo: "Digite a sua senha para confirmar", botao: "Salvar chaves" });
+  if (senha === null) return;
+  const r = await api("SALVAR_CONFIG_IA", { ...dados, senha });
+  if (sessaoExpirou(r)) return;
+  if (r.status !== "success") return aviso(r.message || "Não foi possível salvar.", true);
+  aviso(r.message);
+  await carregarChavesIA();
+}
+
+async function testarChavesIA() {
+  const el = $("#resultadoTesteIA");
+  el.className = "resultado-teste";
+  el.textContent = "";
+  const r = await api("TESTAR_IA");
+  if (sessaoExpirou(r)) return;
+  el.className = "resultado-teste " + (r.status === "success" ? "ok" : "erro");
+  el.textContent = r.message || (r.status === "success" ? "IA funcionando." : "A IA não respondeu.");
 }
 
 function renderizarRecomendacoes() {
@@ -2148,6 +2206,8 @@ $("#btnRecomendacoes").addEventListener("click", () => abrirRecomendacoes());
 $("#btnRecomendacoesGrupo").addEventListener("click", () => abrirRecomendacoes(estado.grupo));
 $("#btnFecharRecomendacoes").addEventListener("click", () => $("#modalRecomendacoes").close());
 $("#formRecomendacao").addEventListener("submit", salvarRecomendacao);
+$("#formChavesIA").addEventListener("submit", salvarChavesIA);
+$("#btnTestarIA").addEventListener("click", testarChavesIA);
 $("#btnCancelarEdicaoRec").addEventListener("click", limparFormRecomendacao);
 $("#listaRecomendacoes").addEventListener("click", ev => {
   const linha = ev.target.closest("[data-rec]");

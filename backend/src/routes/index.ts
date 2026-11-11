@@ -11,6 +11,7 @@ import usuarioRoutes from "./usuario.routes";
 import grupoRoutes from "./grupo.routes";
 import recomendacaoRoutes from "./recomendacao.routes";
 import iaRoutes from "./ia.routes";
+import configuracaoRoutes from "./configuracao.routes";
 
 const rotas = Router();
 
@@ -35,5 +36,6 @@ rotas.use("/usuarios", usuarioRoutes);
 rotas.use("/grupos", grupoRoutes);
 rotas.use("/recomendacoes", recomendacaoRoutes);
 rotas.use("/ia", iaRoutes);
+rotas.use("/configuracoes", configuracaoRoutes);
 
 export default rotas;

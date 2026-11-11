@@ -40,17 +40,21 @@ export async function verificarSenhaDaSessao(sessao: Sessao, senhaInformada: unk
   return "";
 }
 
-/** Toda exclusão exige a senha de quem está logado (campo "senha" no corpo). */
-export async function confirmarSenha(req: Request, res: Response, next: NextFunction) {
-  try {
-    const falha = await verificarSenhaDaSessao(req.sessao!, req.body?.senha, "Senha incorreta. A exclusão não foi feita.");
-    if (falha) return res.status(403).json({ message: falha });
-    return next();
-  } catch (error) {
-    console.error("Erro ao confirmar a senha:", error);
-    return res.status(500).json({ message: "Erro ao confirmar a senha." });
-  }
-}
+/** Exige a senha de quem está logado (campo "senha" no corpo); msgErro aparece se ela não conferir. */
+export const exigirSenha = (msgErro: string) =>
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const falha = await verificarSenhaDaSessao(req.sessao!, req.body?.senha, msgErro);
+      if (falha) return res.status(403).json({ message: falha });
+      return next();
+    } catch (error) {
+      console.error("Erro ao confirmar a senha:", error);
+      return res.status(500).json({ message: "Erro ao confirmar a senha." });
+    }
+  };
+
+/** Toda exclusão exige a senha de quem está logado. */
+export const confirmarSenha = exigirSenha("Senha incorreta. A exclusão não foi feita.");
 
 /** Botões de IA: mesma conferência, com o código que faz o frontend pedir a senha de novo. */
 export async function confirmarSenhaIA(req: Request, res: Response, next: NextFunction) {

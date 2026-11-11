@@ -715,3 +715,19 @@ button.btn-curtir:hover { border-color: var(--primaria); color: var(--primaria);
 .titulo-entregas { font-size: 15px; margin: 16px 0 8px; display: flex; align-items: center; gap: 6px; }
 .lista-entregas select { width: auto; padding: 4px 8px; font-size: 12px; }
 .modal-sub { margin: -4px 0 12px; font-size: 13px; color: var(--texto-suave); }
+
+/* ---------- Chaves da IA (modal de metadados) ---------- */
+.chaves-ia { display: grid; gap: 10px; padding: 14px; margin-bottom: 16px; border: 1px solid var(--borda); border-radius: 10px; background: var(--fundo, #faf8f8); }
+.chaves-ia h3 { margin: 0; font-size: 15px; }
+.chaves-ia .linha { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.chaves-ia label { display: grid; gap: 4px; font-size: 13px; font-weight: 600; }
+.chaves-ia small { font-weight: 400; }
+.chaves-ia .rodape { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.chaves-ia .principal-ia { display: flex; align-items: center; gap: 6px; margin-right: auto; }
+.chaves-ia .principal-ia select { width: auto; }
+.estado-chave { font-weight: 400; font-size: 12px; color: var(--texto-suave); }
+.estado-chave.ok { color: var(--sucesso); }
+.resultado-teste { font-size: 13px; }
+.resultado-teste.ok { color: var(--sucesso); }
+.resultado-teste.erro { color: var(--perigo); }
+@media (max-width: 700px) { .chaves-ia .linha { grid-template-columns: 1fr; } }

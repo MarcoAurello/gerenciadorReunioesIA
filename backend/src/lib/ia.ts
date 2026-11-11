@@ -1,11 +1,13 @@
 /*
  * Inteligência Artificial — Gemini (Google) com Groq como reserva.
  *
- * .env: GEMINI_API_KEY, GEMINI_MODELO (opcional), GROQ_API_KEY, GROQ_MODELO (opcional),
- *       IA_PRINCIPAL (opcional: "groq" para usar o Groq primeiro).
+ * Chaves e IA principal: as cadastradas na tela de Metadados IA (lib/configIA.ts);
+ * na falta delas, GEMINI_API_KEY, GROQ_API_KEY e IA_PRINCIPAL do .env.
+ * Modelos (opcionais): GEMINI_MODELO e GROQ_MODELO do .env.
  * Basta uma das chaves. Com as duas, se a principal falhar (sobrecarga, limite,
  * erro), a outra responde. A IA apenas SUGERE; nada é gravado até alguém adotar.
  */
+import { obterConfigIA } from "./configIA";
 
 const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta";
 const GROQ_URL = "https://api.groq.com/openai/v1";
@@ -101,14 +103,13 @@ function mensagemErroGemini(codigo: number, corpo: string, modelo: string) {
   const detalhe = detalheDoErro(corpo);
   if (codigo === 429) return "Limite gratuito da IA atingido. Tente novamente em alguns minutos.";
   if (sobrecarga(codigo)) return "A IA do Google está sobrecarregada no momento (já tentamos de novo automaticamente). Aguarde 1 ou 2 minutos e clique outra vez.";
-  if (codigo === 400 && /api key/i.test(detalhe)) return "A GEMINI_API_KEY é inválida. Gere uma nova chave no Google AI Studio e atualize o .env do servidor.";
+  if (codigo === 400 && /api key/i.test(detalhe)) return "A chave do Gemini é inválida. Gere uma nova chave no Google AI Studio e cadastre em Metadados IA.";
   if (codigo === 403) return `A chave do Gemini não tem permissão (${detalhe || "acesso negado"}). Confira a chave e o projeto no Google AI Studio.`;
   if (codigo === 404) return `O modelo "${modelo}" não está disponível. Ajuste GEMINI_MODELO no .env do servidor.`;
   return `A IA retornou erro ${codigo}${detalhe ? ": " + detalhe : "."}`;
 }
 
-async function chamarGemini(prompt: string, rapido: boolean): Promise<RespostaProvedor> {
-  const chave = process.env.GEMINI_API_KEY as string;
+async function chamarGemini(prompt: string, rapido: boolean, chave: string): Promise<RespostaProvedor> {
   let modelo = modeloAtual.gemini;
   const pausas = rapido ? PAUSAS_REPETICAO_MS.slice(0, 1) : PAUSAS_REPETICAO_MS;
   const inicio = Date.now();
@@ -172,15 +173,14 @@ async function escolherModeloGroq(chave: string, atual: string) {
 
 function mensagemErroGroq(codigo: number, corpo: string, modelo: string) {
   const detalhe = detalheDoErro(corpo);
-  if (codigo === 401) return "A GROQ_API_KEY é inválida. Gere uma nova chave em console.groq.com/keys e atualize o .env do servidor.";
+  if (codigo === 401) return "A chave do Groq é inválida. Gere uma nova chave em console.groq.com/keys e cadastre em Metadados IA.";
   if (codigo === 429) return "Limite gratuito do Groq atingido. Tente novamente em alguns minutos.";
   if (sobrecarga(codigo)) return "O Groq está sobrecarregado no momento. Tente novamente em instantes.";
   if (codigo === 404) return `O modelo "${modelo}" não está disponível no Groq. Ajuste GROQ_MODELO no .env do servidor.`;
   return `O Groq retornou erro ${codigo}${detalhe ? ": " + detalhe : "."}`;
 }
 
-async function chamarGroq(prompt: string): Promise<RespostaProvedor> {
-  const chave = process.env.GROQ_API_KEY as string;
+async function chamarGroq(prompt: string, chave: string): Promise<RespostaProvedor> {
   let modelo = modeloAtual.groq;
   let r = await conversarGroq(chave, modelo, prompt);
 
@@ -208,10 +208,11 @@ async function chamarGroq(prompt: string): Promise<RespostaProvedor> {
 /** Chama a IA principal e, se ela falhar, a reserva. */
 export async function chamarIA(prompt: string): Promise<RespostaIA> {
   const disponiveis: ("gemini" | "groq")[] = [];
-  if (process.env.GEMINI_API_KEY) disponiveis.push("gemini");
-  if (process.env.GROQ_API_KEY) disponiveis.push("groq");
-  if (!disponiveis.length) return { erro: "IA não configurada: cadastre GEMINI_API_KEY ou GROQ_API_KEY no .env do servidor." };
-  if (String(process.env.IA_PRINCIPAL || "").toLowerCase() === "groq") disponiveis.reverse();
+  const config = await obterConfigIA();
+  if (config.geminiKey) disponiveis.push("gemini");
+  if (config.groqKey) disponiveis.push("groq");
+  if (!disponiveis.length) return { erro: "IA não configurada: o administrador cadastra a chave do Gemini ou do Groq em Metadados IA." };
+  if (config.principal === "groq") disponiveis.reverse();
 
   const temReserva = disponiveis.length > 1;
   const erros: string[] = [];
@@ -220,7 +221,9 @@ export async function chamarIA(prompt: string): Promise<RespostaIA> {
     const nome = provedor === "gemini" ? "Gemini" : "Groq";
     const t0 = Date.now();
     // Com reserva disponível, a principal desiste mais rápido (menos espera na tela)
-    const r = provedor === "gemini" ? await chamarGemini(prompt, temReserva) : await chamarGroq(prompt);
+    const r = provedor === "gemini"
+      ? await chamarGemini(prompt, temReserva, config.geminiKey)
+      : await chamarGroq(prompt, config.groqKey);
     console.log(`IA ${nome}${r.modelo ? ` (${r.modelo})` : ""}: ${r.json ? "ok" : "falhou"} em ${((Date.now() - t0) / 1000).toFixed(1)} s${r.erro ? " — " + r.erro : ""}`);
     if (r.json) return { json: r.json, provedor: nome, modelo: r.modelo || "", segundos: Math.round((Date.now() - inicio) / 1000) };
     erros.push(`${nome}: ${r.erro}`);

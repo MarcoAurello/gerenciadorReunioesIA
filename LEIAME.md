@@ -131,9 +131,14 @@ Copie `.env.example` para `.env` — na raiz para testar localmente, ou em `serv
 
 ### IA
 
-1. **Gemini:** em https://aistudio.google.com/apikey, clique em **Create API key** e copie a chave (começa com `AIza`) para `GEMINI_API_KEY`.
-2. **Groq (reserva, recomendado):** em https://console.groq.com, vá em **API Keys → Create API Key** e copie a chave (começa com `gsk_`) para `GROQ_API_KEY`.
-3. Recrie a API para ler o `.env` novo: `docker compose up -d reunioes-api`.
+O **administrador** cadastra as chaves pelo sistema, sem mexer no servidor:
+
+1. **Gemini:** em https://aistudio.google.com/apikey, clique em **Create API key** e copie a chave (começa com `AIza`).
+2. **Groq (reserva, recomendado):** em https://console.groq.com/keys, clique em **Create API Key** e copie a chave (começa com `gsk_`).
+3. No sistema, abra a engrenagem → **Metadados IA**. No bloco **Chaves da IA**, cole as chaves, escolha qual IA usar primeiro e clique em **Salvar chaves**. O sistema pede a sua senha.
+4. Clique em **Testar IA**: aparece qual IA respondeu e em quanto tempo, ou o motivo do erro.
+
+As chaves ficam no banco, cifradas (AES-256-GCM, com uma chave derivada do `JWT_SECRET`), e nunca voltam para o navegador: a tela mostra só os 4 últimos caracteres. Se o `JWT_SECRET` mudar, cadastre as chaves de novo. Também dá para deixá-las no `.env` (`GEMINI_API_KEY`, `GROQ_API_KEY`, `IA_PRINCIPAL`): valem quando não há chave cadastrada na tela.
 
 Basta uma das chaves; com as duas, se a principal falhar (sobrecarga, limite ou erro), a outra responde sem o usuário perceber. Se o modelo configurado for aposentado, outro é escolhido sozinho. O tempo e o resultado de cada chamada aparecem em `docker logs reunioes-api`.
 
@@ -241,6 +246,7 @@ Essas senhas valem só no modo demo, que roda inteiro no navegador. Elas não d�
 | `GET /entregas/:id/anexo` | quem está logado |
 | `/usuarios`, `/grupos`, `/recomendacoes` | só o administrador; excluir metadado pede senha |
 | `POST /ia/pautas`, `POST /ideias/:id/ia/encaminhamentos` | colaborador e administrador, com a senha de login |
+| `GET /configuracoes/ia`, `PUT /configuracoes/ia`, `POST /configuracoes/ia/testar` | só o administrador; salvar pede senha |
 
 - **Contrato com o frontend:** os campos do JSON têm os mesmos nomes que o protótipo usava (`ID_Ideia`, `Titulo`...); no banco as colunas são snake_case. No `app.js`, a função `api("ACAO", dados)` traduz cada ação para a rota REST e, depois de uma gravação, busca o resumo e o detalhe da pauta atualizados.
 - **Sessão:** a senha só trafega no login. Depois, o navegador manda um token JWT no cabeçalho `Authorization`, que expira em 6 horas e é invalidado ao clicar em **Sair**. A cada requisição o usuário é conferido no banco: desativar alguém ou trocar o perfil vale na hora.
