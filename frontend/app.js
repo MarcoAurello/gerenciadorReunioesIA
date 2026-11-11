@@ -1989,8 +1989,9 @@ function abrirRecomendacoes(idGrupo = null) {
   $("#formRecomendacao .linha").style.gridTemplateColumns = recGrupoFixo ? "1fr" : "";
   limparFormRecomendacao();
   renderizarRecomendacoes();
-  // Chaves da IA valem para o sistema todo: só na tela geral, e não existem no modo demonstração
-  $("#formChavesIA").hidden = !!recGrupoFixo || MODO_DEMO;
+  // Chaves da IA valem para o sistema todo, mas aparecem também na tela de um GT (é onde se procura);
+  // não existem no modo demonstração
+  $("#formChavesIA").hidden = MODO_DEMO;
   if (!$("#formChavesIA").hidden) carregarChavesIA();
   $("#modalRecomendacoes").showModal();
   $("#rTitulo").focus();
