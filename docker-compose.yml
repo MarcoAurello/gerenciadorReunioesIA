@@ -1,9 +1,62 @@
+# Sistema completo para testar localmente: MySQL + API + frontend (Nginx).
+# Uso (nesta pasta):  docker compose up -d --build
+#   Antes, copie .env.example para .env e preencha as senhas.
+#   Abra http://localhost:8088 (ou a PORTA do .env).
+# No servidor interno, use servidor/docker-compose.yml (com o gateway e o letramento).
 services:
+  reunioes-db:
+    image: mysql:8.4.3
+    container_name: reunioes-db
+    environment:
+      MYSQL_DATABASE: reunioes
+      MYSQL_USER: reunioes
+      MYSQL_PASSWORD: ${DB_PASS:?defina DB_PASS no .env}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS:?defina DB_ROOT_PASS no .env}
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - dados-mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 5s
+      retries: 30
+    restart: unless-stopped
+
+  reunioes-api:
+    build: ./backend
+    image: sistema-reunioes-api:latest
+    container_name: reunioes-api
+    environment:
+      DB_HOST: reunioes-db
+      DB_NAME: reunioes
+      DB_USER: reunioes
+      DB_PASS: ${DB_PASS}
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET no .env}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-6h}
+      SENHA_ADMIN: ${SENHA_ADMIN:-}
+      SENHA_LEITURA: ${SENHA_LEITURA:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODELO: ${GEMINI_MODELO:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODELO: ${GROQ_MODELO:-}
+      IA_PRINCIPAL: ${IA_PRINCIPAL:-}
+    volumes:
+      - anexos:/app/src/uploads
+    depends_on:
+      reunioes-db:
+        condition: service_healthy
+    restart: unless-stopped
+
   reunioes:
     build: ./frontend
     image: sistema-reunioes:latest
     container_name: sistema-reunioes
-    # Porta do servidor interno → porta 80 do contêiner (mude PORTA no .env ou no comando)
+    # Porta do computador → porta 80 do contêiner
     ports:
       - "${PORTA:-8088}:80"
+    depends_on:
+      - reunioes-api
     restart: unless-stopped
+
+volumes:
+  dados-mysql:
+  anexos:

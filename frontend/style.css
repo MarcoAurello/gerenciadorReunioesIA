@@ -282,6 +282,10 @@ textarea { resize: vertical; }
   gap: 16px;
   align-items: start;
 }
+/* Sem isso, um texto longo sem espaços (como um link na descrição) alarga a coluna
+   além do grid e a lista passa por baixo do painel da pauta */
+.layout > * { min-width: 0; }
+.layout { overflow-wrap: anywhere; }
 
 /* ---------- Lista ---------- */
 .lista { display: grid; gap: 10px; }

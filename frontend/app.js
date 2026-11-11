@@ -1,10 +1,10 @@
 /* ==========================================================
    Sistema de Apoio a Reuniões — frontend
-   Backend: Google Apps Script + Google Planilhas (Code.gs)
+   Backend: API Node/Express + MySQL (pasta backend/)
    ========================================================== */
 
-// ⬇️ URL da implantação do Apps Script (Implantar → Gerenciar implantações) ⬇️
-const API_URL = "https://script.google.com/macros/s/AKfycbxpKYxg6B0rjoS6nAbi5PL2eVrzok4EoDDyVczepN9JsgmhsvuEFZLU9YgjL11H8qQT/exec";
+// Relativo: atrás do gateway vira /sistemadereunioes/api; o Nginx do frontend repassa ao backend
+const API_URL = "api/";
 
 // Abra index.html?demo para testar a interface sem a planilha (dados em memória)
 const MODO_DEMO = new URLSearchParams(location.search).has("demo");
@@ -153,29 +153,83 @@ function marcarSincronizando(delta) {
   if (el) el.hidden = sincronizando === 0;
 }
 
+/*
+ * Cada ação da tela → rota REST do backend: [método, caminho, corpo].
+ * O resto do app continua chamando api("ACAO", dados) e recebendo { status, message, ... }.
+ */
+const enc = encodeURIComponent;
+const ROTAS = {
+  LOGIN: d => ["POST", "auth/login", { usuario: d.usuario, senha: d.senha }],
+  SAIR: () => ["POST", "auth/logout"],
+  ALTERAR_SENHA: d => ["PUT", "auth/senha", d],
+  LISTAR: () => ["GET", "resumo"],
+  DETALHE_IDEIA: d => ["GET", `ideias/${enc(d.idIdeia)}`],
+  CRIAR_IDEIA: d => ["POST", "ideias", d],
+  EDITAR_IDEIA: d => ["PUT", `ideias/${enc(d.idIdeia)}`, d],
+  ADD_INTERACAO: d => ["POST", `ideias/${enc(d.idIdeia)}/interacoes`, d],
+  EXCLUIR_INTERACAO: d => ["DELETE", `interacoes/${enc(d.idInteracao)}`, d],
+  CURTIR: d => ["POST", `interacoes/${enc(d.idInteracao)}/curtida`],
+  ATUALIZAR_CITACAO: d => ["PUT", `citacoes/${enc(d.idCitacao)}`, d],
+  ADD_ENCAMINHAMENTO: d => ["POST", `ideias/${enc(d.idIdeia)}/encaminhamentos`, d],
+  ATUALIZAR_ENCAMINHAMENTO: d => ["PUT", `encaminhamentos/${enc(d.idEncaminhamento)}`, d],
+  ADD_ENTREGA: d => ["POST", `ideias/${enc(d.idIdeia)}/entregas`, d],
+  EDITAR_ENTREGA: d => ["PUT", `entregas/${enc(d.idEntrega)}`, d],
+  ANEXAR_ENTREGA: d => {
+    const form = new FormData();
+    form.append("arquivo", d.arquivo, d.arquivo.name);
+    return ["POST", `entregas/${enc(d.idEntrega)}/anexo`, form];
+  },
+  EXCLUIR_ANEXO_ENTREGA: d => ["DELETE", `entregas/${enc(d.idEntrega)}/anexo`, d],
+  BAIXAR_ANEXO: d => ["GET", `entregas/${enc(d.idEntrega)}/anexo`],
+  CRIAR_USUARIO: d => ["POST", "usuarios", d],
+  EDITAR_USUARIO: d => ["PUT", `usuarios/${enc(d.idUsuario)}`, d],
+  CRIAR_GRUPO: d => ["POST", "grupos", d],
+  EDITAR_GRUPO: d => ["PUT", `grupos/${enc(d.idGrupo)}`, d],
+  CRIAR_RECOMENDACAO: d => ["POST", "recomendacoes", d],
+  EDITAR_RECOMENDACAO: d => ["PUT", `recomendacoes/${enc(d.idRecomendacao)}`, d],
+  EXCLUIR_RECOMENDACAO: d => ["DELETE", `recomendacoes/${enc(d.idRecomendacao)}`, d],
+  IA_SUGERIR_PAUTAS: d => ["POST", "ia/pautas", d],
+  IA_SUGERIR_ENCAMINHAMENTOS: d => ["POST", `ideias/${enc(d.idIdeia)}/ia/encaminhamentos`, d]
+};
+// Ações que não gravam: a resposta vai direto para a tela
+const SO_LEITURA = new Set(["LOGIN", "SAIR", "ALTERAR_SENHA", "LISTAR", "DETALHE_IDEIA", "BAIXAR_ANEXO", "IA_SUGERIR_PAUTAS", "IA_SUGERIR_ENCAMINHAMENTOS"]);
+
+/** Uma requisição à API; o corpo JSON ganha status "success"/"error" conforme o código HTTP. */
+async function chamarRota(metodo, caminho, corpo) {
+  const headers = estado.token ? { Authorization: "Bearer " + estado.token } : {};
+  const json = corpo !== undefined && !(corpo instanceof FormData);
+  if (json) headers["Content-Type"] = "application/json";
+  const res = await fetch(API_URL + caminho, { method: metodo, headers, body: json ? JSON.stringify(corpo) : corpo });
+  const tipo = res.headers.get("Content-Type") || "";
+  // Download do anexo: o arquivo vem cru
+  if (res.ok && !tipo.includes("application/json")) return { status: "success", blob: await res.blob(), tipo };
+  let r;
+  try { r = await res.json(); } catch (e) { r = { message: "O servidor respondeu de forma inesperada (" + res.status + ")." }; }
+  return { ...r, status: res.ok ? "success" : "error" };
+}
+
 /** silencioso: não cobre a tela com o "Aguarde..." (só um indicador discreto no topo). */
 async function api(acao, dados = {}, { silencioso = false } = {}) {
-  const req = { ...dados, acao, token: estado.token };
   if (silencioso) marcarSincronizando(1); else mostrarLoading(acao);
   try {
-    if (MODO_DEMO) return await demoApi(req);
-    // text/plain evita o preflight CORS, que o Apps Script não atende
-    const res = await fetch(API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(req)
-    });
-    const corpo = await res.text();
-    let json;
-    try { json = JSON.parse(corpo); } catch (e) { json = null; }
-    // Resposta vazia/HTML ou mensagem do script antigo = Code.gs novo não implantado
-    if (!json || json.message === "Senha de escrita incorreta!" || (acao === "LOGIN" && json.status === "success" && !json.token)) {
-      return { status: "error", message: "O servidor respondeu, mas ainda está com o código antigo. No Apps Script, cole o Code.gs novo e publique uma Nova versão em Implantar → Gerenciar implantações." };
-    }
-    return json;
+    if (MODO_DEMO) return await demoApi({ ...dados, acao, token: estado.token });
+    const rota = ROTAS[acao];
+    if (!rota) return { status: "error", message: "Ação desconhecida: " + acao };
+    const r = await chamarRota(...rota(dados));
+    if (r.status !== "success" || SO_LEITURA.has(acao)) return r;
+
+    // Depois de gravar, devolve junto o resumo e o detalhe da pauta atualizados (como o Code.gs fazia)
+    const idIdeia = r.id || dados.idIdeia;
+    const [resumo, detalhe] = await Promise.all([
+      chamarRota("GET", "resumo"),
+      idIdeia ? chamarRota("GET", `ideias/${enc(idIdeia)}`) : null
+    ]);
+    if (resumo.status !== "success") return r; // gravou; a tela recarrega sozinha em gravar()
+    const { message, status, ...dadosResumo } = resumo;
+    return { ...dadosResumo, ...r, ...(detalhe && detalhe.status === "success" ? { detalhe: detalhe.detalhe } : {}) };
   } catch (err) {
     console.error(err);
-    return { status: "error", message: "Falha ao conectar aos dados. Verifique a URL e a implantação do Apps Script." };
+    return { status: "error", message: "Falha ao conectar ao servidor. Verifique a sua rede e tente novamente." };
   } finally {
     if (silencioso) marcarSincronizando(-1); else esconderLoading();
   }
@@ -522,7 +576,7 @@ const minhasCitacoes = () => {
 };
 
 /** Escapa o texto e destaca @apelidos de usuários cadastrados. */
-function formatarTexto(t) {
+function destacarMencoes(t) {
   const eu = meuUsuario();
   return esc(t).replace(/@([a-z0-9._-]+)/gi, (trecho, ap) => {
     const limpo = ap.replace(/[.\-_]+$/, "");
@@ -532,6 +586,24 @@ function formatarTexto(t) {
     const souEu = eu && u.Apelido === eu.Apelido;
     return `<span class="mencao ${souEu ? "eu-citado" : ""}" title="${esc(u.Nome)}">@${esc(limpo)}</span>${resto}`;
   });
+}
+
+// Só http(s): nada de javascript: ou outros esquemas
+const RE_LINK = /https?:\/\/[^\s<>"']+/gi;
+
+/** Escapa o texto, transforma endereços http(s) em links (abrem em nova aba) e destaca @apelidos fora deles. */
+function formatarTexto(t) {
+  const texto = String(t ?? "");
+  let html = "";
+  let ultimo = 0;
+  for (const m of texto.matchAll(RE_LINK)) {
+    // Pontuação no fim ("veja https://x.com/a.") fica fora do link
+    const url = m[0].replace(/[.,;:!?)\]}]+$/, "");
+    html += destacarMencoes(texto.slice(ultimo, m.index));
+    html += `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>`;
+    ultimo = m.index + url.length;
+  }
+  return html + destacarMencoes(texto.slice(ultimo));
 }
 
 const citaEu = t => {
@@ -759,7 +831,7 @@ function renderizarDetalhe() {
         ${acoes}
       </div>
       <div class="meta">Criada em ${fmtData(ideia.Data_Criacao, true)}${ideia.Autor ? " por " + esc(ideia.Autor) : ""}</div>
-      ${ideia.Descricao ? `<p class="descricao">${esc(ideia.Descricao)}${ideia.Descricao_Completa === false && !carregado ? "…" : ""}</p>` : ""}
+      ${ideia.Descricao ? `<p class="descricao">${formatarTexto(ideia.Descricao)}${ideia.Descricao_Completa === false && !carregado ? "…" : ""}</p>` : ""}
     </div>
     <nav class="abas" role="tablist">
       ${aba("discussao", "Sugestões", nSugestoes)}
@@ -979,8 +1051,9 @@ function problemaNoArquivo(arquivo) {
 }
 
 async function enviarDocumento(idEntrega, arquivo) {
-  const conteudo = await lerComoBase64(arquivo);
-  return gravar("ANEXAR_ENTREGA", { idIdeia: estado.selecionada, idEntrega, nome: arquivo.name, tipo: arquivo.type, conteudo });
+  // O modo demonstração guarda o arquivo em memória como base64; a API recebe o arquivo em si
+  const conteudo = MODO_DEMO ? await lerComoBase64(arquivo) : undefined;
+  return gravar("ANEXAR_ENTREGA", { idIdeia: estado.selecionada, idEntrega, arquivo, nome: arquivo.name, tipo: arquivo.type, conteudo });
 }
 
 async function anexarDocumento(arquivo) {
@@ -1082,13 +1155,19 @@ async function baixarAnexo(idEntrega) {
   const r = await api("BAIXAR_ANEXO", { idEntrega });
   if (sessaoExpirou(r)) return;
   if (r.status !== "success") return aviso(r.message || "Não foi possível baixar o documento.", true);
-  const bin = atob(r.conteudo || "");
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  const url = URL.createObjectURL(new Blob([bytes], { type: r.tipo || "application/octet-stream" }));
+  let blob = r.blob;
+  if (!blob) { // modo demonstração: o arquivo está em memória como base64
+    const bin = atob(r.conteudo || "");
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    blob = new Blob([bytes], { type: r.tipo || "application/octet-stream" });
+  }
+  // O nome vem da entrega (o mesmo que aparece na tela)
+  const en = (detalheDe(estado.selecionada)?.entregas || []).find(e => String(e.ID_Entrega) === String(idEntrega));
+  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = r.nome || "documento";
+  a.download = r.nome || (en && en.Anexo_Nome) || "documento";
   document.body.appendChild(a);
   a.click();
   a.remove();

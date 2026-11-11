@@ -1,8 +1,9 @@
 # Servidor interno com os dois sistemas no mesmo endereço:
 #   /                    → Letramento em IA Hemobrás
-#   /sistemadereunioes/  → Sistema de Apoio a Reuniões
+#   /sistemadereunioes/  → Sistema de Apoio a Reuniões (frontend + API + MySQL)
 #
 # Cada sistema é construído direto do GitHub. Só o gateway fica exposto.
+# Antes do primeiro uso: copie ../.env.example para .env (nesta pasta) e preencha.
 # Uso (nesta pasta):  docker compose up -d --build
 services:
   gateway:
@@ -30,9 +31,60 @@ services:
     container_name: letramento
     restart: unless-stopped
 
+  # Sistema de Apoio a Reuniões: pastas frontend/ e backend/ do repositório (branch em REUNIOES_REF)
   reunioes:
     build:
-      context: ${REUNIOES_REPO:-https://github.com/MarcoAurello/gerenciadorReunioesIA.git#main}
+      context: ${REUNIOES_REPO:-https://github.com/MarcoAurello/gerenciadorReunioesIA.git}#${REUNIOES_REF:-main}:frontend
     image: sistema-reunioes:latest
     container_name: sistema-reunioes
+    depends_on:
+      - reunioes-api
     restart: unless-stopped
+
+  reunioes-api:
+    build:
+      context: ${REUNIOES_REPO:-https://github.com/MarcoAurello/gerenciadorReunioesIA.git}#${REUNIOES_REF:-main}:backend
+    image: sistema-reunioes-api:latest
+    container_name: reunioes-api
+    environment:
+      DB_HOST: reunioes-db
+      DB_NAME: reunioes
+      DB_USER: reunioes
+      DB_PASS: ${DB_PASS:?defina DB_PASS no .env}
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET no .env}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-6h}
+      SENHA_ADMIN: ${SENHA_ADMIN:-}
+      SENHA_LEITURA: ${SENHA_LEITURA:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODELO: ${GEMINI_MODELO:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODELO: ${GROQ_MODELO:-}
+      IA_PRINCIPAL: ${IA_PRINCIPAL:-}
+    volumes:
+      # Documentos anexados às entregas
+      - reunioes-anexos:/app/src/uploads
+    depends_on:
+      reunioes-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  reunioes-db:
+    image: mysql:8.4.3
+    container_name: reunioes-db
+    environment:
+      MYSQL_DATABASE: reunioes
+      MYSQL_USER: reunioes
+      MYSQL_PASSWORD: ${DB_PASS}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS:?defina DB_ROOT_PASS no .env}
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - reunioes-mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 5s
+      retries: 30
+    restart: unless-stopped
+
+volumes:
+  reunioes-mysql:
+  reunioes-anexos:

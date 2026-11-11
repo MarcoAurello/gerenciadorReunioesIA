@@ -116,16 +116,16 @@ async function importar(arquivo, substituir) {
 
       /* Grupos (o GT-Sistemas já existe pelo seeder) */
       const grupos = new Map(aba.grupos.filter((g) => txt(g.ID_Grupo, 40)).map((g) => [txt(g.ID_Grupo, 40), g]));
-      const referenciados = new Set([
-        ...aba.ideias.map((i) => txt(i.ID_Grupo, 40)),
-        ...aba.recomendacoes.map((r) => txt(r.ID_Grupo, 40))
-      ].filter(Boolean));
-      for (const id of referenciados) {
-        if (!grupos.has(id) && id !== GRUPO_PADRAO) {
-          grupos.set(id, { ID_Grupo: id, Nome: id, Descricao: "Recriado na importação: o grupo não estava na aba Grupos_GT. Renomeie.", Ativo: "Sim" });
-          avisos.push(`Grupo ${id} não existia na aba Grupos_GT: criado com o código como nome (renomeie na tela de grupos).`);
-        }
-      }
+      // Grupo apagado da aba Grupos_GT = descartado (o protótipo também não o mostrava): as pautas e
+      // os metadados dele ficam de fora
+      const grupoExiste = (id) => !id || id === GRUPO_PADRAO || grupos.has(id);
+      const descartados = [...new Set(aba.ideias.map((i) => txt(i.ID_Grupo, 40)).filter((id) => !grupoExiste(id)))];
+      descartados.forEach((id) => {
+        const qtd = aba.ideias.filter((i) => txt(i.ID_Grupo, 40) === id).length;
+        avisos.push(`Grupo ${id} não está na aba Grupos_GT: as ${qtd} pauta(s) dele não foram importadas.`);
+      });
+      aba.ideias = aba.ideias.filter((i) => grupoExiste(txt(i.ID_Grupo, 40)));
+      aba.recomendacoes = aba.recomendacoes.filter((r) => grupoExiste(txt(r.ID_Grupo, 40)));
       const padrao = grupos.get(GRUPO_PADRAO);
       if (padrao) {
         await qi.bulkUpdate("grupos", { nome: txt(padrao.Nome, 80) || "GT-Sistemas", descricao: txt(padrao.Descricao, 500), ativo: ativo(padrao.Ativo) }, { id_grupo: GRUPO_PADRAO }, { transaction });

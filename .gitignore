@@ -1,2 +1,3 @@
 # Planilha de dados reais do protótipo (importada para o MySQL)
 *.xlsx
+.env

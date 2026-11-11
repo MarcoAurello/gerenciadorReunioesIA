@@ -2,15 +2,15 @@
 
 Desenvolvido por **GTIC Hemobrás**.
 
-Frontend em HTML, CSS e JS puros. O backend é um Google Apps Script ligado a uma Planilha Google. A IA usa o Google Gemini, pela API do AI Studio no plano gratuito.
+Frontend em HTML, CSS e JS puros, servido pelo Nginx. Backend em Node.js + Express + TypeScript, com MySQL via Sequelize. A IA usa o Google Gemini, com o Groq como reserva. Tudo roda em contêineres Docker.
 
-| Arquivo      | Função |
-|--------------|--------|
-| `index.html` | Estrutura das telas (login, painel e modais) |
-| `style.css`  | Visual (paleta bordô) |
-| `app.js`     | Lógica do frontend, chamadas à API e modo demonstração |
-| `Code.gs`    | Backend no Apps Script (colar no editor da planilha) |
-| `docs/`      | Imagem do fluxo da aplicação (SVG e PNG), aberta pelo menu da engrenagem em "Fluxo do app" |
+| Pasta / arquivo | Função |
+|---|---|
+| `frontend/` | Telas (`index.html`, `style.css`, `app.js`, `logo.svg`), o fluxo da aplicação em `docs/` e o Nginx que serve os arquivos e repassa `/api` ao backend |
+| `backend/` | API REST: models, controllers, rotas, middlewares de autenticação e perfil, migrations e a importação da planilha |
+| `docker-compose.yml` | Sistema completo para testar localmente (MySQL + API + frontend) |
+| `servidor/` | Servidor interno: gateway com o Letramento em IA na raiz e este sistema em `/sistemadereunioes/` |
+| `.env.example` | Modelo das senhas e chaves (copie para `.env`, que nunca vai para o Git) |
 
 ---
 
@@ -18,7 +18,7 @@ Frontend em HTML, CSS e JS puros. O backend é um Google Apps Script ligado a um
 
 ```mermaid
 flowchart TD
-    A[Login: @apelido + senha] --> B{Apps Script confere<br>o hash na aba Usuarios_GT}
+    A[Login: @apelido + senha] --> B{API confere a senha<br>no banco}
     B -->|inválida / 5 erros = bloqueio 10 min| A
     B -->|perfil Leitura ou<br>usuário vazio + SENHA_LEITURA| L[Perfil LEITURA]
     B -->|perfil Colaborador| E[Perfil COLABORADOR]
@@ -48,8 +48,8 @@ flowchart TD
 - As pautas criadas antes dos GTs, sem `ID_Grupo`, pertencem ao **GT-Sistemas**.
 - Nova pauta e "Sugerir pautas com IA" valem para o GT aberto. O sino de citações reúne todos os GTs, e ao abrir uma citação o sistema vai para o GT dela.
 
-**Sugestões e comentários:** na aba **Sugestões**, o colaborador registra sugestões para a pauta. Cada sugestão tem os **próprios comentários** logo abaixo, com uma caixa "Comentar" em cada uma. Na planilha, o comentário guarda na coluna `ID_Pai` o ID da sugestão a que pertence. Comentários antigos, de antes dessa mudança, aparecem em "Comentários gerais anteriores".
-Só o usuário **@marco.nunes** vê a lixeira em cada sugestão e em cada comentário (a lista fica em `EXCLUEM_INTERACOES`, no Code.gs). **Toda exclusão pede a senha de quem está logado**, inclusive a de metadados. Senhas erradas contam para o mesmo bloqueio de 10 minutos do login. Ao excluir uma sugestão, os comentários dela e as citações e curtidas ligadas a eles também são apagados da planilha. O sistema pede confirmação antes, e a exclusão não pode ser desfeita.
+**Sugestões e comentários:** na aba **Sugestões**, o colaborador registra sugestões para a pauta. Cada sugestão tem os **próprios comentários** logo abaixo, com uma caixa "Comentar" em cada uma. No banco, o comentário guarda em `ID_Pai` o ID da sugestão a que pertence. Comentários antigos, de antes dessa mudança, aparecem em "Comentários gerais anteriores".
+Só o usuário **@marco.nunes** vê a lixeira em cada sugestão e em cada comentário (a lista fica em `EXCLUEM_INTERACOES`, em `backend/src/lib/constantes.ts`). **Toda exclusão pede a senha de quem está logado**, inclusive a de metadados. Senhas erradas contam para o mesmo bloqueio de 10 minutos do login. Ao excluir uma sugestão, os comentários dela e as citações e curtidas ligadas a eles também são apagados. O sistema pede confirmação antes, e a exclusão não pode ser desfeita.
 
 **Como mudar o status** (só para Colaborador e Administrador):
 - **Pauta:** abra a pauta e use a caixa de seleção no canto superior direito do detalhe, ao lado de "Editar". A mudança é salva na hora.
@@ -60,11 +60,11 @@ Só o usuário **@marco.nunes** vê a lixeira em cada sugestão e em cada coment
 
 **Indicadores:** o topo do painel do GT mostra pautas ativas, pautas em debate, encaminhamentos em aberto, atrasados e concluídos, entregas aguardando análise e entregas aprovadas. **Cada indicador é clicável** e abre a lista do que ele conta, organizada como pauta → encaminhamento → entregas. Nos indicadores de pauta, a lista mostra as pautas com o número de sugestões, encaminhamentos e entregas. Clicar no nome da pauta abre a pauta. A lista busca os dados atuais no servidor, só das pautas que têm algo a contar. Os cartões da lista de GTs mostram as entregas a analisar.
 
-Na planilha, as entregas ficam na aba `Entregas_GT`, e o vínculo fica na coluna `ID_Entregas` de `Encaminhamentos_GT`, com os IDs separados por vírgula. A coluna `ID_Entrega` da versão anterior é lida como `ID_Entregas`, então nada se perde. As duas são criadas sozinhas na primeira gravação.
+No banco, as entregas ficam na tabela `entregas`, e o vínculo com os encaminhamentos fica na tabela `encaminhamento_entregas` (uma entrega pode atender a mais de um encaminhamento).
 
 **Status da entrega:** `Aguardando análise` → `Aprovado`. **Só o administrador muda o status**, pela caixa de seleção ao lado da data, na lista de entregas do encaminhamento. O servidor recusa a mudança vinda de outro perfil. Toda entrega nova começa como "Aguardando análise". Entregas gravadas com os status antigos aparecem assim: "Aguardando entrega" e "Em análise" como "Aguardando análise", e "Concluído" como "Aprovado".
 
-**Documento da entrega:** cada entrega aceita **um** documento (até 10 MB; pdf, doc/docx, xls/xlsx, ppt/pptx, odt/ods/odp, txt, csv, rtf, png, jpg ou zip). Para trocar, exclua o atual e anexe outro. A exclusão pede a senha de quem está logado. O arquivo fica no Google Drive do dono do script, na pasta "Anexos - Sistema de Apoio a Reuniões", cujo ID fica guardado na propriedade `PASTA_ANEXOS`. A pasta é criada sozinha e **não é compartilhada**. O download passa pelo sistema, então só quem tem login baixa. Um documento excluído vai para a lixeira do Drive, de onde pode ser recuperado por 30 dias. **Depois de colar o Code.gs, execute a função `autorizarDrive` no editor para autorizar o acesso ao Drive.**
+**Documento da entrega:** cada entrega aceita **um** documento (até 10 MB; pdf, doc/docx, xls/xlsx, ppt/pptx, odt/ods/odp, txt, csv, rtf, png, jpg ou zip). Para trocar, exclua o atual e anexe outro. A exclusão pede a senha de quem está logado. O arquivo fica no servidor, no volume `reunioes-anexos`, e **não é compartilhado**: o download passa pelo sistema, então só quem tem login baixa. Um documento excluído é apagado do servidor e não pode ser recuperado (só pela cópia de segurança do volume).
 
 **Ciclo da pauta:** `Em Debate` → `Em Redação` → `Aprovada` ou `Arquivada`.
 
@@ -78,7 +78,7 @@ Na planilha, as entregas ficam na aba `Entregas_GT`, e o vínculo fica na coluna
 
 **Curtidas e comentários nas sugestões:** qualquer usuário com login próprio, **inclusive o perfil Leitura**, pode curtir e comentar as sugestões. Cada usuário curte uma sugestão uma vez só (clicar de novo desfaz), e passar o mouse sobre o botão mostra quem curtiu. Comentários não têm limite. Criar sugestões continua restrito a Colaborador e Administrador. O observador sem cadastro só vê o número de curtidas. As curtidas ficam na aba `Curtidas_GT`, criada sozinha na primeira curtida.
 
-**Metadados para a IA:** o **administrador** cadastra, no botão **Metadados IA** do topo (todos os GTs) ou no mesmo botão dentro de um GT (já vinculado a ele), orientações que a IA deve seguir ao analisar a discussão de uma pauta (✦ Sugerir com IA, na aba Encaminhamentos). Cada metadado vale para **todos os GTs** ou para um GT só. Os ativos seguem junto com a pauta e os comentários, e a síntese mostra quantos foram seguidos. Eles ficam na aba `Recomendacoes_IA` da planilha, criada sozinha no primeiro cadastro.
+**Metadados para a IA:** o **administrador** cadastra, no botão **Metadados IA** do topo (todos os GTs) ou no mesmo botão dentro de um GT (já vinculado a ele), orientações que a IA deve seguir ao analisar a discussão de uma pauta (✦ Sugerir com IA, na aba Encaminhamentos). Cada metadado vale para **todos os GTs** ou para um GT só. Os ativos seguem junto com a pauta e os comentários, e a síntese mostra quantos foram seguidos. Eles ficam na tabela `recomendacoes_ia`.
 
 **Usuários e login:**
 - No primeiro acesso, entre com o usuário **`admin`** e a senha `SENHA_ADMIN`. Vá em **Usuários** e cadastre as pessoas com nome, @apelido (gerado do nome, ex.: `marco.nunes`), e-mail opcional, **perfil** e **senha inicial** (mínimo de 6 caracteres).
@@ -105,136 +105,110 @@ flowchart LR
     S --> F[Marcar como resolvida] --> RS[Citação Resolvida]
 ```
 
-**IA (somente colaborador):** a IA só sugere. Nada é gravado na planilha até alguém clicar em **Adotar**.
+**IA (somente colaborador):** a IA só sugere. Nada é gravado até alguém clicar em **Adotar**.
 - *Sugerir pautas*: analisa as pautas e os encaminhamentos existentes e propõe novas pautas. Aceita um foco opcional.
 - *Sugerir encaminhamentos*: resume a discussão da pauta e propõe ações com prazo. O responsável é confirmado antes de adotar.
 
 ---
 
-## 2. Planilha e Apps Script
+## 2. Configuração (.env)
 
-1. Abra a planilha do GT e vá em **Extensões → Apps Script**.
-2. Substitua todo o conteúdo pelo arquivo `Code.gs` e salve.
-3. No menu de funções, selecione **`configurar`** e clique em **Executar**. Autorize quando o Google pedir.
-   - Rode de novo sempre que colar uma versão nova do código. Assim o Google pede as autorizações novas, como e-mail e IA. Sem isso, a API falha.
-   - Cria ou ajusta as abas `Ideias_GT` (com a coluna `ID_Grupo`), `Interacoes_GT`, `Encaminhamentos_GT`, `Usuarios_GT`, `Citacoes_GT` e `Grupos_GT`, e registra o GT-Sistemas, com cabeçalho e colunas que faltarem. Planilhas antigas continuam funcionando.
-   - Se não houver `SENHA_ADMIN`, gera uma senha aleatória e mostra no **Registro de execução** (anote). Se existir uma `SENHA_ESCRITA` antiga, ela vira a `SENHA_ADMIN`.
-   - Nenhuma senha fica no código: todas vêm das Propriedades do script.
-4. Vá em **Configurações do projeto (⚙) → Propriedades do script** e defina:
+Copie `.env.example` para `.env` — na raiz para testar localmente, ou em `servidor/` no servidor interno — e preencha:
 
-   | Propriedade      | Valor |
-   |------------------|-------|
-   | `SENHA_ADMIN`    | senha do usuário `admin` (primeiro acesso e gestão de usuários) |
-   | `SENHA_LEITURA`  | *(opcional)* senha do observador sem cadastro; sem ela, esse acesso fica desligado |
-   | `GEMINI_API_KEY` | chave gerada em https://aistudio.google.com/apikey |
-   | `GEMINI_MODELO`  | *(opcional)* padrão `gemini-2.5-flash` |
-   | `NOTIFICAR_EMAIL`| *(opcional)* `sim` para mandar e-mail a quem for citado |
-   | `URL_SISTEMA`    | *(opcional)* endereço do sistema, incluído no e-mail |
-
-   > Use senhas fortes e não as coloque no código nem neste repositório.
-   > As senhas dos usuários não ficam nas propriedades: elas ficam na aba `Usuarios_GT`, como hash (coluna `Senha_Hash`). Não edite essa coluna à mão; use **Redefinir senha** no sistema.
-5. Vá em **Implantar → Gerenciar implantações → Editar (lápis) → Versão: Nova versão → Implantar**.
-   - Executar como: **Eu** · Quem pode acessar: **Qualquer pessoa**.
-   - Ao editar a implantação existente, a URL continua a mesma. Se criar uma implantação nova, cole a URL em `API_URL` no início do `app.js`.
-
-## 2.1 Ativar a IA (Gemini)
-
-1. Acesse https://aistudio.google.com/apikey com uma conta Google e clique em **Create API key** (Criar chave de API). Copie a chave, que começa com `AIza`.
-2. No Apps Script, vá em **Configurações do projeto (⚙) → Propriedades do script → Adicionar propriedade**:
-   - Propriedade: `GEMINI_API_KEY`
-   - Valor: a chave copiada
-   - Clique em **Salvar propriedades do script**.
-3. Volte ao **Editor**, selecione a função **`testarIA`** (ou `testarGemini`, só para o Google) e clique em **Executar**. Na primeira vez, autorize o acesso a "serviços externos".
-4. Leia o **Registro de execução**:
-   - `✅ IA funcionando`: pronto, os botões de IA já funcionam no sistema, sem precisar reimplantar.
-   - `modelo não está disponível`: o registro lista os modelos "flash" liberados para a sua chave. Crie a propriedade `GEMINI_MODELO` com um deles.
-   - `chave inválida`: gere outra chave no AI Studio e substitua o valor.
-
-### Groq como reserva (opcional, recomendado)
-
-Com o Groq configurado, se o Gemini estiver sobrecarregado (erro 503), no limite ou com erro, **o Groq responde automaticamente**, sem o usuário perceber.
-
-1. Acesse https://console.groq.com, crie uma conta gratuita e vá em **API Keys → Create API Key**. Copie a chave, que começa com `gsk_`.
-2. Nas **Propriedades do script**, adicione `GROQ_API_KEY` com a chave.
-3. No editor, execute **`testarIA`**. Ela testa as duas IAs e mostra a ordem de uso.
-
-| Propriedade | Para quê |
+| Variável | Valor |
 |---|---|
-| `GROQ_API_KEY` | chave do Groq |
-| `GROQ_MODELO` | *(opcional)* padrão `llama-3.3-70b-versatile`. Se o modelo for desativado, outro é escolhido e gravado sozinho |
-| `IA_PRINCIPAL` | *(opcional)* `groq` para usar o Groq primeiro e o Gemini como reserva |
+| `DB_PASS`, `DB_ROOT_PASS` | senhas do MySQL. Não mude depois que o banco for criado |
+| `JWT_SECRET` | segredo da sessão (o comando para gerar está no `.env.example`) |
+| `JWT_EXPIRES_IN` | duração da sessão; padrão `6h` |
+| `SENHA_ADMIN` | senha do usuário `admin` (primeiro acesso e gestão de usuários) |
+| `SENHA_LEITURA` | *(opcional)* senha do observador sem cadastro; vazia, esse acesso fica desligado |
+| `GEMINI_API_KEY`, `GEMINI_MODELO` | chave do Gemini e, opcional, o modelo (padrão `gemini-2.5-flash`) |
+| `GROQ_API_KEY`, `GROQ_MODELO` | *(opcional)* chave do Groq e o modelo (padrão `llama-3.3-70b-versatile`) |
+| `IA_PRINCIPAL` | *(opcional)* `groq` para usar o Groq primeiro |
+| `PORTA` | porta exposta (local: 8088; servidor: a do gateway, 80) |
 
-Basta ter uma das chaves; com as duas, uma cobre a outra.
+> Use senhas fortes. O `.env` fica só no servidor e nunca vai para o Git. As senhas dos usuários ficam no banco, como hash bcrypt; para trocar, use **Redefinir senha** no sistema.
 
-> A chave fica só no Apps Script e nunca chega ao navegador. Não a coloque no `app.js` nem a compartilhe. No plano gratuito, os dados enviados podem ser usados pelo Google para melhorar os modelos. Evite colocar informações sigilosas nas pautas que forem enviadas à IA.
+### IA
 
-## 3. Publicar o frontend
+1. **Gemini:** em https://aistudio.google.com/apikey, clique em **Create API key** e copie a chave (começa com `AIza`) para `GEMINI_API_KEY`.
+2. **Groq (reserva, recomendado):** em https://console.groq.com, vá em **API Keys → Create API Key** e copie a chave (começa com `gsk_`) para `GROQ_API_KEY`.
+3. Recrie a API para ler o `.env` novo: `docker compose up -d reunioes-api`.
 
-O frontend é estático: `index.html`, `style.css`, `app.js`, `logo.svg` e a pasta `docs/`. O backend continua no Apps Script, com a Planilha, o Drive e o Gemini, e não vai para o servidor.
+Basta uma das chaves; com as duas, se a principal falhar (sobrecarga, limite ou erro), a outra responde sem o usuário perceber. Se o modelo configurado for aposentado, outro é escolhido sozinho. O tempo e o resultado de cada chamada aparecem em `docker logs reunioes-api`.
+
+> As chaves ficam só no servidor e nunca chegam ao navegador. No plano gratuito, os dados enviados podem ser usados pelos provedores para melhorar os modelos. Evite colocar informações sigilosas nas pautas enviadas à IA.
+
+## 3. Publicar
 
 ### No servidor interno, junto com o Letramento em IA (recomendado)
-
-O servidor interno atende os dois sistemas no mesmo endereço:
 
 | Endereço | Sistema |
 |---|---|
 | `http://<servidor>/` | Letramento em IA Hemobrás ([repositório](https://github.com/MarcoAurello/letramentoEmIAHemobras)) |
 | `http://<servidor>/sistemadereunioes/` | Sistema de Apoio a Reuniões |
 
-A pasta [`servidor/`](servidor/) tem um `docker-compose.yml` com três contêineres. O **gateway** (Nginx) é o único exposto e encaminha cada endereço para o contêiner certo. Os outros dois são construídos **direto do GitHub**, a partir do `main` de cada repositório, então não é preciso copiar arquivos para o servidor.
+A pasta [`servidor/`](servidor/) tem um `docker-compose.yml` com cinco contêineres. O **gateway** (Nginx) é o único exposto. Os demais são construídos **direto do GitHub**: o letramento, o frontend (`frontend/`), a API (`backend/`) e o MySQL. O banco e os documentos anexados ficam em volumes do Docker (`reunioes-mysql` e `reunioes-anexos`), que sobrevivem a novas publicações.
 
 ```bash
 git clone https://github.com/MarcoAurello/gerenciadorReunioesIA.git
 cd gerenciadorReunioesIA/servidor
+cp ../.env.example .env    # e preencha
 docker compose up -d --build
 ```
 
-Para usar outra porta (o padrão é 80): `PORTA=8080 docker compose up -d --build`.
+Ao subir, a API cria as tabelas sozinha (migrations) e registra o GT-Sistemas. O sistema é construído a partir da branch em `REUNIOES_REF` (padrão `main`); para publicar outra branch, defina `REUNIOES_REF=nome-da-branch` no `.env`.
 
-**Para publicar uma versão nova** de qualquer um dos dois sistemas, depois do push no GitHub:
+**Primeira carga: importar a planilha do protótipo.** No Google Sheets, baixe a planilha em **Arquivo → Fazer download → Microsoft Excel (.xlsx)** e, no servidor:
+
+```bash
+docker cp "Sistema GT - TI.xlsx" reunioes-api:/tmp/planilha.xlsx
+docker exec reunioes-api npm run importar -- /tmp/planilha.xlsx
+docker exec reunioes-api rm /tmp/planilha.xlsx
+```
+
+- Os IDs e as senhas são mantidos: cada usuário entra com a mesma senha de antes, que é convertida para bcrypt no primeiro login.
+- Tudo é gravado numa transação: se algo falhar, nada fica pela metade.
+- Com dados já no banco, a importação só roda com `--substituir`, que apaga pautas, usuários, grupos e metadados antes.
+- O resumo no fim lista os avisos: grupos recriados, linhas vazias ignoradas e documentos que ficaram no Google Drive e precisam ser anexados de novo.
+
+**Para publicar uma versão nova**, depois do push no GitHub:
 
 ```bash
 cd gerenciadorReunioesIA/servidor
 git pull
-docker compose build --no-cache letramento reunioes
+docker compose build --no-cache letramento reunioes reunioes-api
 docker compose up -d
 ```
 
+**Cópia de segurança do banco:**
+
+```bash
+docker exec reunioes-db sh -c 'mysqldump -u root -p"$MYSQL_ROOT_PASSWORD" reunioes' > reunioes-$(date +%F).sql
+```
+
 **Cuidados:**
-- **Novos arquivos do letramento:** o repositório do letramento não tem Dockerfile, então os arquivos copiados estão listados no `dockerfile_inline` do `servidor/docker-compose.yml` (`index.html`, `formulario-hemobras.html`, os `.pdf` e `pessoas.xlsx`). Se o site ganhar arquivos novos, acrescente-os ali.
-- **Endereço sem barra:** `/sistemadereunioes` sem a barra final redireciona para `/sistemadereunioes/`, mantendo parâmetros como `?demo`. Os redirecionamentos internos ganham o prefixo de volta (`proxy_redirect`).
-- **Mesmo domínio:** os dois sistemas compartilham o endereço. Isso não causa conflito, porque este sistema guarda dados no navegador só com chaves que começam com `sre_`, e o letramento não guarda nada.
+- **Novos arquivos do letramento:** o repositório do letramento não tem Dockerfile, então os arquivos copiados estão listados no `dockerfile_inline` do `servidor/docker-compose.yml`. Se o site ganhar arquivos novos, acrescente-os ali.
+- **Endereço sem barra:** `/sistemadereunioes` sem a barra final redireciona para `/sistemadereunioes/`, mantendo parâmetros como `?demo`.
+- **Mesmo domínio:** os dois sistemas compartilham o endereço sem conflito: este sistema guarda dados no navegador só com chaves que começam com `sre_`, e o letramento não guarda nada.
+- **Tamanho dos envios:** o gateway e o Nginx do frontend aceitam até 11 MB (documentos de até 10 MB) e esperam até 2 minutos pela IA.
 
-### Só este sistema, com Docker
-
-A imagem usa o Nginx e contém só os arquivos do frontend. `Code.gs` e o `LEIAME.md` ficam de fora.
+### Testar localmente (sistema completo)
 
 ```bash
-git clone https://github.com/MarcoAurello/gerenciadorReunioesIA.git
-cd gerenciadorReunioesIA
+cp .env.example .env    # e preencha
 docker compose up -d --build
 ```
 
-O sistema fica em `http://<servidor>:8088`. Para usar outra porta: `PORTA=80 docker compose up -d --build`, ou crie um arquivo `.env` com `PORTA=80`.
+O sistema fica em `http://localhost:8088` (ou na `PORTA` do `.env`). A importação da planilha é igual à do servidor.
 
-**Para publicar uma versão nova:**
+### Desenvolver o backend
 
-```bash
-git pull
-docker compose up -d --build
-```
+Na pasta `backend/`, `docker compose -f docker-compose.dev.yml up` sobe um MySQL e a API com recarga automática (nodemon) em `http://localhost:3333/api`. Os scripts do seu padrão funcionam dentro do contêiner `reunioes-api-dev`: `npm run migrate`, `npm run seed`, `npm run reset:db`, `npm run migration:generate -- --name Nome`.
 
-Não é preciso Ctrl+F5: o Nginx manda o navegador conferir o HTML, o JS e o CSS a cada acesso, e as imagens ficam guardadas por 1 dia. Se o `Code.gs` mudou, ele continua sendo colado no Apps Script, com uma **Nova versão** publicada, como antes.
+## 4. Testar sem servidor
 
-**O que o contêiner já traz:**
-- **Saúde:** verificação automática (`docker ps` mostra `healthy`) e reinício automático (`restart: unless-stopped`).
-- **Segurança:** cabeçalhos em `docker/seguranca.conf`. A Content-Security-Policy só libera o próprio servidor, o Apps Script (`script.google.com` e `script.googleusercontent.com`) e o Google Fonts. Se a URL da API mudar de domínio, ajuste o `connect-src` nesse arquivo.
-- **Acesso externo:** o servidor só entrega os arquivos e não precisa de internet. Quem precisa alcançar o Apps Script e o Google Fonts é o **computador de quem usa**, porque o navegador chama esses endereços diretamente. Se a rede bloquear, libere esses domínios.
-- **HTTPS:** se o servidor interno tiver certificado, coloque o contêiner atrás do proxy reverso que já cuida do HTTPS. O contêiner atende em HTTP na porta 80.
-
-## 4. Testar sem a planilha
-
-Abra `index.html?demo`. Os dados ficam em memória e a IA é simulada.
+Abra `frontend/index.html?demo`. Os dados ficam em memória e a IA é simulada.
 Acessos do demo:
 
 | Usuário | Senha | Perfil |
@@ -250,17 +224,30 @@ Essas senhas valem só no modo demo, que roda inteiro no navegador. Elas não d�
 
 ## Observações técnicas
 
-- Todas as chamadas são `POST` com `Content-Type: text/plain`, para a senha não ir na URL e não haver *preflight* CORS.
-- A senha só trafega no login. Depois, o navegador usa um token de sessão, que expira após 6 horas sem uso e é apagado ao clicar em **Sair** ou fechar a aba.
-- As senhas são guardadas como SHA-256 com salt e 300 iterações. O hash nunca é enviado ao navegador. Depois de 5 tentativas erradas, o login daquele usuário fica bloqueado por 10 minutos.
-- As gravações usam `LockService`, então duas pessoas salvando ao mesmo tempo não se sobrescrevem.
-- **Carga parcial**, para a planilha poder crescer:
-  - Ao entrar, vem só um **resumo**: as pautas com contadores, a descrição cortada em 300 caracteres, os usuários e as citações de quem entrou.
-  - As sugestões, os comentários e os encaminhamentos de uma pauta só são buscados quando ela é aberta (`DETALHE_IDEIA`).
-  - Uma pauta já aberta reaparece na hora e se atualiza em segundo plano, com o indicador "Atualizando…" no topo.
-- O login e as gravações já devolvem os dados atualizados, sem uma segunda requisição. Ao recarregar a página, a última tela carregada aparece na hora a partir de uma cópia na aba do navegador, que é apagada ao sair ou fechar a aba.
-- Numa planilha simulada com 300 pautas, 15 mil sugestões e comentários e 4 mil encaminhamentos, a carga inicial caiu de cerca de 6 MB para 190 KB, e o processamento ficou cerca de 5 vezes mais rápido. Abrir uma pauta trafega cerca de 20 KB.
-- Os textos digitados são escapados antes de aparecer na tela, o que evita injeção de HTML.
-- A chave do Gemini fica só no Apps Script e nunca chega ao navegador.
-- E-mail e perfil dos usuários só chegam ao navegador de administradores.
-- Só a própria pessoa citada (ou um administrador) pode marcar a citação como resolvida.
+**API** (`backend/`, prefixo `/api`; no servidor, `/sistemadereunioes/api`):
+
+| Rota | Quem pode |
+|---|---|
+| `POST /auth/login`, `POST /auth/logout`, `PUT /auth/senha` | login aberto; os outros, quem está logado |
+| `GET /resumo`, `GET /ideias/:id` | quem está logado |
+| `POST /ideias`, `PUT /ideias/:id` | colaborador e administrador |
+| `POST /ideias/:id/interacoes` | sugestão: colaborador; comentário: qualquer login próprio |
+| `POST /interacoes/:id/curtida` | qualquer login próprio |
+| `DELETE /interacoes/:id` | só os usuários de `EXCLUEM_INTERACOES` (em `backend/src/lib/constantes.ts`), com senha |
+| `PUT /citacoes/:id` | a pessoa citada ou o administrador |
+| `POST /ideias/:id/encaminhamentos`, `PUT /encaminhamentos/:id` | colaborador e administrador |
+| `POST /ideias/:id/entregas`, `PUT /entregas/:id` | colaborador e administrador; o status, só o administrador |
+| `POST /entregas/:id/anexo`, `DELETE /entregas/:id/anexo` | colaborador e administrador; excluir pede senha |
+| `GET /entregas/:id/anexo` | quem está logado |
+| `/usuarios`, `/grupos`, `/recomendacoes` | só o administrador; excluir metadado pede senha |
+| `POST /ia/pautas`, `POST /ideias/:id/ia/encaminhamentos` | colaborador e administrador, com a senha de login |
+
+- **Contrato com o frontend:** os campos do JSON têm os mesmos nomes que o protótipo usava (`ID_Ideia`, `Titulo`...); no banco as colunas são snake_case. No `app.js`, a função `api("ACAO", dados)` traduz cada ação para a rota REST e, depois de uma gravação, busca o resumo e o detalhe da pauta atualizados.
+- **Sessão:** a senha só trafega no login. Depois, o navegador manda um token JWT no cabeçalho `Authorization`, que expira em 6 horas e é invalidado ao clicar em **Sair**. A cada requisição o usuário é conferido no banco: desativar alguém ou trocar o perfil vale na hora.
+- **Senhas:** guardadas com bcrypt; o hash nunca vai ao navegador. Depois de 5 tentativas erradas, o login daquele usuário fica bloqueado por 10 minutos. Toda exclusão e todo uso da IA pedem a senha de quem está logado.
+- **Integridade:** as tabelas têm chaves estrangeiras. Excluir uma sugestão apaga junto os comentários, as curtidas e as citações; as gravações com mais de uma tabela usam transação.
+- **Documentos anexados:** até 10 MB, nas extensões `pdf, doc, docx, xls, xlsx, ppt, pptx, odt, ods, odp, txt, csv, rtf, png, jpg, jpeg, zip`. O nome no disco é gerado pelo servidor e o caminho nunca vai ao navegador: o download passa pela API, com login.
+- **Carga parcial:** ao entrar, vem só um resumo (pautas com contadores e a descrição cortada em 300 caracteres, grupos, usuários e as citações de quem entrou). O conteúdo de cada pauta só é buscado quando ela é aberta.
+- **Segurança no navegador:** cabeçalhos em `frontend/docker/seguranca.conf`. A Content-Security-Policy só libera o próprio servidor e o Google Fonts. Os textos digitados são escapados antes de aparecer na tela.
+- **Privacidade:** e-mail e perfil dos usuários só chegam ao navegador de administradores.
+- **Ainda não portado do protótipo:** o e-mail para quem é citado (`NOTIFICAR_EMAIL`), que precisa de um servidor SMTP.
