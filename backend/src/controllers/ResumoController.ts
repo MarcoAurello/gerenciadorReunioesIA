@@ -21,13 +21,14 @@ class ResumoController {
     const nivel = sessao.nivel;
     const hoje = hojeISO();
 
+    // Tabelas com campo Ativo são lidas pelo model (sem raw): o MySQL devolve 1/0 e o frontend espera true/false
     const [interacoes, encaminhamentos, entregas, ideias, grupos, usuarios] = await Promise.all([
       Interacao.findAll({ attributes: ["ID_Ideia", "ID_Pai", "Tipo"], raw: true }),
       Encaminhamento.findAll({ attributes: ["ID_Encaminhamento", "ID_Ideia", "Acao", "Responsavel", "Prazo", "Status"], raw: true }),
       Entrega.findAll({ attributes: ["ID_Ideia", "Status"], raw: true }),
       Ideia.findAll({ order: [["Data_Criacao", "ASC"]], raw: true }),
-      Grupo.findAll({ order: [["Data_Criacao", "ASC"]], raw: true }),
-      Usuario.findAll({ order: [["Nome", "ASC"]], raw: true })
+      Grupo.findAll({ order: [["Data_Criacao", "ASC"]] }).then((l) => l.map((g) => g.get({ plain: true }) as Grupo)),
+      Usuario.findAll({ order: [["Nome", "ASC"]] }).then((l) => l.map((u) => u.get({ plain: true }) as Usuario))
     ]);
 
     const cont: Record<string, Contador> = {};
@@ -108,7 +109,7 @@ class ResumoController {
         meusEncaminhamentos,
         // Só o administrador cadastra e vê as recomendações da IA
         recomendacoes: nivel === "ADMIN"
-          ? (await Recomendacao.findAll({ order: [["Data_Criacao", "ASC"]], raw: true })).map(paraApi)
+          ? (await Recomendacao.findAll({ order: [["Data_Criacao", "ASC"]] })).map((r) => paraApi(r.get({ plain: true })))
           : []
       },
       listas: { STATUS_IDEIA, TIPOS_INTERACAO, STATUS_ENCAMINHAMENTO, STATUS_CITACAO, STATUS_ENTREGA, PERFIS: Object.keys(PERFIS) }

@@ -3,6 +3,14 @@ import { sequelize } from "../models";
 import authRoutes from "./auth.routes";
 import resumoRoutes from "./resumo.routes";
 import ideiaRoutes from "./ideia.routes";
+import interacaoRoutes from "./interacao.routes";
+import encaminhamentoRoutes from "./encaminhamento.routes";
+import entregaRoutes from "./entrega.routes";
+import citacaoRoutes from "./citacao.routes";
+import usuarioRoutes from "./usuario.routes";
+import grupoRoutes from "./grupo.routes";
+import recomendacaoRoutes from "./recomendacao.routes";
+import iaRoutes from "./ia.routes";
 
 const rotas = Router();
 
@@ -19,5 +27,13 @@ rotas.get("/", async (_req: Request, res: Response) => {
 rotas.use("/auth", authRoutes);
 rotas.use("/resumo", resumoRoutes);
 rotas.use("/ideias", ideiaRoutes);
+rotas.use("/interacoes", interacaoRoutes);
+rotas.use("/encaminhamentos", encaminhamentoRoutes);
+rotas.use("/entregas", entregaRoutes);
+rotas.use("/citacoes", citacaoRoutes);
+rotas.use("/usuarios", usuarioRoutes);
+rotas.use("/grupos", grupoRoutes);
+rotas.use("/recomendacoes", recomendacaoRoutes);
+rotas.use("/ia", iaRoutes);
 
 export default rotas;
