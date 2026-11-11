@@ -1,0 +1,44 @@
+# Desenvolvimento do backend: MySQL + API com nodemon.
+# Uso (nesta pasta):  docker compose -f docker-compose.dev.yml up
+services:
+  db:
+    image: mysql:8.4.3
+    container_name: reunioes-db-dev
+    environment:
+      MYSQL_DATABASE: reunioes
+      MYSQL_USER: reunioes
+      MYSQL_PASSWORD: reunioes-dev
+      MYSQL_ROOT_PASSWORD: reunioes-root-dev
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - dados-dev:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-preunioes-root-dev"]
+      interval: 5s
+      retries: 20
+
+  api:
+    image: node:22.12.0-alpine
+    container_name: reunioes-api-dev
+    working_dir: /app
+    command: sh -c "npm install && npm run migrate && npm run seed && npm run dev"
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: reunioes
+      DB_USER: reunioes
+      DB_PASS: reunioes-dev
+      JWT_SECRET: segredo-so-para-desenvolvimento-local
+      SENHA_ADMIN: admin-dev
+    ports:
+      - "3333:3333"
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  dados-dev:
+  node_modules:
