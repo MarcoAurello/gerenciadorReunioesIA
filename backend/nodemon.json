@@ -2,5 +2,6 @@
   "watch": ["app.ts", "server.ts", "src"],
   "ignore": ["src/uploads", "src/database"],
   "ext": "ts,js,json",
-  "exec": "ts-node server.ts"
+  "legacyWatch": true,
+  "exec": "ts-node --files server.ts"
 }
