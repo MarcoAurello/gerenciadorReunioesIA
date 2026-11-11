@@ -6,10 +6,12 @@ import { texto } from "../lib/util";
 /** Só os 4 últimos caracteres: a chave nunca volta para o navegador. */
 const finalDaChave = (chave: string) => (chave ? "…" + chave.slice(-4) : "");
 
-/** Chave colada na tela: sem espaços, tamanho razoável e com o prefixo do provedor. */
-function problemaNaChave(valor: string, prefixo: string, nome: string): string {
+/** Chave colada na tela: sem espaços, tamanho razoável e com um dos prefixos do provedor. */
+function problemaNaChave(valor: string, prefixos: readonly string[], nome: string): string {
   if (/\s/.test(valor) || valor.length < 20 || valor.length > 200) return `A chave do ${nome} parece incompleta. Copie de novo, inteira.`;
-  if (!valor.startsWith(prefixo)) return `A chave do ${nome} começa com "${prefixo}". Confira se copiou a chave certa.`;
+  if (!prefixos.some((p) => valor.startsWith(p))) {
+    return `A chave do ${nome} começa com ${prefixos.map((p) => `"${p}"`).join(" ou ")}. Confira se copiou a chave certa.`;
+  }
   return "";
 }
 
@@ -38,14 +40,15 @@ class ConfiguracaoController {
       const por = texto(req.sessao!.nome, 120);
       const alteracoes: [string, string | null][] = [];
 
-      for (const [campo, chave, prefixo, nome] of [
-        ["geminiKey", CHAVES.geminiKey, "AIza", "Gemini"],
-        ["groqKey", CHAVES.groqKey, "gsk_", "Groq"]
+      // O Google gera chaves no formato antigo ("AIza...") e no novo ("AQ....")
+      for (const [campo, chave, prefixos, nome] of [
+        ["geminiKey", CHAVES.geminiKey, ["AIza", "AQ."], "Gemini"],
+        ["groqKey", CHAVES.groqKey, ["gsk_"], "Groq"]
       ] as const) {
         if (req.body[campo] === undefined) continue;
         const valor = String(req.body[campo] || "").trim();
         if (valor) {
-          const problema = problemaNaChave(valor, prefixo, nome);
+          const problema = problemaNaChave(valor, prefixos, nome);
           if (problema) return res.status(400).json({ message: problema });
         }
         alteracoes.push([chave, valor || null]);

@@ -133,7 +133,7 @@ Copie `.env.example` para `.env` — na raiz para testar localmente, ou em `serv
 
 O **administrador** cadastra as chaves pelo sistema, sem mexer no servidor:
 
-1. **Gemini:** em https://aistudio.google.com/apikey, clique em **Create API key** e copie a chave (começa com `AIza`).
+1. **Gemini:** em https://aistudio.google.com/apikey, clique em **Create API key** e copie a chave (começa com `AIza` ou, nas chaves novas, `AQ.`).
 2. **Groq (reserva, recomendado):** em https://console.groq.com/keys, clique em **Create API Key** e copie a chave (começa com `gsk_`).
 3. No sistema, abra a engrenagem → **Metadados IA**. No bloco **Chaves da IA**, cole as chaves, escolha qual IA usar primeiro e clique em **Salvar chaves**. O sistema pede a sua senha.
 4. Clique em **Testar IA**: aparece qual IA respondeu e em quanto tempo, ou o motivo do erro.
