@@ -8,8 +8,8 @@ Frontend em HTML, CSS e JS puros, servido pelo Nginx. Backend em Node.js + Expre
 |---|---|
 | `frontend/` | Telas (`index.html`, `style.css`, `app.js`, `logo.svg`), o fluxo da aplicação em `docs/` e o Nginx que serve os arquivos e repassa `/api` ao backend |
 | `backend/` | API REST: models, controllers, rotas, middlewares de autenticação e perfil, migrations e a importação da planilha |
-| `docker-compose.yml` | Sistema completo para testar localmente (MySQL + API + frontend) |
-| `servidor/` | Servidor interno: gateway com o Letramento em IA na raiz e este sistema em `/sistemadereunioes/` |
+| `docker-compose.yml` | Mesmo layout do servidor (letramento na raiz, este sistema em `/sistemadereunioes/`), construído a partir das pastas do clone |
+| `servidor/` | O mesmo layout, construindo este sistema direto do GitHub (sem clonar o repositório inteiro) |
 | `.env.example` | Modelo das senhas e chaves (copie para `.env`, que nunca vai para o Git) |
 
 ---
@@ -198,14 +198,18 @@ docker exec reunioes-db sh -c 'mysqldump -u root -p"$MYSQL_ROOT_PASSWORD" reunio
 - **Mesmo domínio:** os dois sistemas compartilham o endereço sem conflito: este sistema guarda dados no navegador só com chaves que começam com `sre_`, e o letramento não guarda nada.
 - **Tamanho dos envios:** o gateway e o Nginx do frontend aceitam até 11 MB (documentos de até 10 MB) e esperam até 2 minutos pela IA.
 
-### Testar localmente (sistema completo)
+### A partir do repositório clonado (mesmo layout, com o código local)
+
+O `docker-compose.yml` da **raiz** monta o mesmo layout do servidor (gateway, letramento na raiz e este sistema em `/sistemadereunioes/`), mas constrói o sistema a partir das pastas `frontend/` e `backend/` do clone, em vez do GitHub. Serve para publicar a partir de uma cópia local ou para testar uma versão antes do push.
 
 ```bash
-cp .env.example .env    # e preencha
+git clone -b sistema-completo https://github.com/MarcoAurello/gerenciadorReunioesIA.git
+cd gerenciadorReunioesIA
+cp .env.example .env    # e preencha (aqui não precisa de REUNIOES_REF)
 docker compose up -d --build
 ```
 
-O sistema fica em `http://localhost:8088` (ou na `PORTA` do `.env`). A importação da planilha é igual à do servidor.
+Use **um ou outro**: o compose da raiz ou o de `servidor/`. Os contêineres têm os mesmos nomes; para trocar, rode `docker compose down` na pasta do que está no ar antes. Cada um guarda o banco nos próprios volumes, então, ao trocar, importe a planilha de novo. A importação é igual à do servidor.
 
 ### Desenvolver o backend
 
