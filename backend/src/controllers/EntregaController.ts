@@ -5,7 +5,7 @@ import { Op, Transaction } from "sequelize";
 import { sequelize, Ideia, Entrega, Encaminhamento, EncaminhamentoEntrega } from "../models";
 import { STATUS_ENTREGA } from "../lib/constantes";
 import { dataISO, novoId, texto } from "../lib/util";
-import { PASTA_UPLOADS, nomeOriginal } from "../config/upload";
+import { PASTA_UPLOADS, nomeOriginal, removerArquivoDoAnexo } from "../config/upload";
 
 /** Deixa a entrega vinculada exatamente aos encaminhamentos da lista (só os da mesma pauta). */
 async function vincularEntrega(idEntrega: string, idIdeia: string, ids: unknown, transaction: Transaction) {
@@ -137,6 +137,22 @@ class EntregaController {
     } catch (error) {
       console.error("Erro ao excluir documento:", error);
       return res.status(500).json({ message: "Erro ao excluir o documento." });
+    }
+  }
+
+  /** Exclui a entrega (os vínculos com encaminhamentos caem junto) e o documento dela. */
+  async excluir(req: Request, res: Response): Promise<Response> {
+    try {
+      const entrega = await Entrega.findByPk(String(req.params.id));
+      if (!entrega) return res.status(404).json({ message: "Entrega não encontrada. Ela pode já ter sido excluída." });
+      const arquivo = entrega.Anexo_Arquivo;
+      await entrega.destroy();
+      // O documento só sai do disco depois que o banco confirmou a exclusão
+      if (arquivo) await removerArquivoDoAnexo(arquivo);
+      return res.status(200).json({ message: "Entrega excluída.", id: entrega.ID_Ideia });
+    } catch (error) {
+      console.error("Erro ao excluir entrega:", error);
+      return res.status(500).json({ message: "Erro ao excluir a entrega." });
     }
   }
 

@@ -49,7 +49,7 @@ flowchart TD
 - Nova pauta e "Sugerir pautas com IA" valem para o GT aberto. O sino de citações reúne todos os GTs, e ao abrir uma citação o sistema vai para o GT dela.
 
 **Sugestões e comentários:** na aba **Sugestões**, o colaborador registra sugestões para a pauta. Cada sugestão tem os **próprios comentários** logo abaixo, com uma caixa "Comentar" em cada uma. No banco, o comentário guarda em `ID_Pai` o ID da sugestão a que pertence. Comentários antigos, de antes dessa mudança, aparecem em "Comentários gerais anteriores".
-Só o usuário **@marco.nunes** vê a lixeira em cada sugestão e em cada comentário (a lista fica em `EXCLUEM_INTERACOES`, em `backend/src/lib/constantes.ts`). **Toda exclusão pede a senha de quem está logado**, inclusive a de metadados. Senhas erradas contam para o mesmo bloqueio de 10 minutos do login. Ao excluir uma sugestão, os comentários dela e as citações e curtidas ligadas a eles também são apagados. O sistema pede confirmação antes, e a exclusão não pode ser desfeita.
+**Só o administrador exclui**; colaboradores apenas incluem e editam. O administrador vê a lixeira em cada sugestão, comentário, encaminhamento e entrega, e o botão "Excluir documento" nas entregas. **Toda exclusão pede a senha de quem está logado**, inclusive a de metadados. Senhas erradas contam para o mesmo bloqueio de 10 minutos do login. Ao excluir uma sugestão, os comentários dela e as citações e curtidas ligadas a eles também são apagados. Ao excluir um encaminhamento, as entregas que só pertencem a ele também são apagadas, com os documentos; uma entrega ligada a outro encaminhamento fica. O sistema pede confirmação antes, e a exclusão não pode ser desfeita.
 
 **Como mudar o status** (só para Colaborador e Administrador):
 - **Pauta:** abra a pauta e use a caixa de seleção no canto superior direito do detalhe, ao lado de "Editar". A mudança é salva na hora.
@@ -238,11 +238,12 @@ Essas senhas valem só no modo demo, que roda inteiro no navegador. Elas não d�
 | `POST /ideias`, `PUT /ideias/:id` | colaborador e administrador |
 | `POST /ideias/:id/interacoes` | sugestão: colaborador; comentário: qualquer login próprio |
 | `POST /interacoes/:id/curtida` | qualquer login próprio |
-| `DELETE /interacoes/:id` | só os usuários de `EXCLUEM_INTERACOES` (em `backend/src/lib/constantes.ts`), com senha |
+| `DELETE /interacoes/:id`, `DELETE /encaminhamentos/:id`, `DELETE /entregas/:id` | só o administrador, com senha |
 | `PUT /citacoes/:id` | a pessoa citada ou o administrador |
 | `POST /ideias/:id/encaminhamentos`, `PUT /encaminhamentos/:id` | colaborador e administrador |
 | `POST /ideias/:id/entregas`, `PUT /entregas/:id` | colaborador e administrador; o status, só o administrador |
-| `POST /entregas/:id/anexo`, `DELETE /entregas/:id/anexo` | colaborador e administrador; excluir pede senha |
+| `POST /entregas/:id/anexo` | colaborador e administrador |
+| `DELETE /entregas/:id/anexo` | só o administrador, com senha |
 | `GET /entregas/:id/anexo` | quem está logado |
 | `/usuarios`, `/grupos`, `/recomendacoes` | só o administrador; excluir metadado pede senha |
 | `POST /ia/pautas`, `POST /ideias/:id/ia/encaminhamentos` | colaborador e administrador, com a senha de login |

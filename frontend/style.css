@@ -731,3 +731,6 @@ button.btn-curtir:hover { border-color: var(--primaria); color: var(--primaria);
 .resultado-teste.ok { color: var(--sucesso); }
 .resultado-teste.erro { color: var(--perigo); }
 @media (max-width: 700px) { .chaves-ia .linha { grid-template-columns: 1fr; } }
+
+/* Lixeira no fim da linha da entrega */
+.empurra-direita { margin-left: auto; }

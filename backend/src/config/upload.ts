@@ -13,6 +13,12 @@ export const ANEXO_EXTENSOES = ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "ppt
 export const nomeOriginal = (file: Express.Multer.File) =>
   Buffer.from(file.originalname, "latin1").toString("utf8").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 200);
 
+/** Apaga o documento do disco (só o nome do arquivo é usado: nada fora da pasta de uploads). */
+export const removerArquivoDoAnexo = (arquivo: string) =>
+  fs.promises.rm(path.join(PASTA_UPLOADS, path.basename(arquivo)), { force: true }).catch((error) => {
+    console.error("Erro ao apagar o documento do disco:", error);
+  });
+
 const extensao = (nome: string) => (nome.match(/\.([a-z0-9]+)$/i) || [])[1]?.toLowerCase() || "";
 
 export default multer({

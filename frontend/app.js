@@ -71,6 +71,8 @@ const LOADING_ACAO = {
   LISTAR: "Buscando as pautas...",
   SALVAR_CONFIG_IA: "Salvando as chaves da IA...",
   TESTAR_IA: "Perguntando à IA...",
+  EXCLUIR_ENCAMINHAMENTO: "Excluindo o encaminhamento...",
+  EXCLUIR_ENTREGA: "Excluindo a entrega...",
   CRIAR_IDEIA: "Salvando a pauta...",
   EDITAR_IDEIA: "Salvando as alterações da pauta...",
   ADD_INTERACAO: "Registrando...",
@@ -174,6 +176,8 @@ const ROTAS = {
   ATUALIZAR_CITACAO: d => ["PUT", `citacoes/${enc(d.idCitacao)}`, d],
   ADD_ENCAMINHAMENTO: d => ["POST", `ideias/${enc(d.idIdeia)}/encaminhamentos`, d],
   ATUALIZAR_ENCAMINHAMENTO: d => ["PUT", `encaminhamentos/${enc(d.idEncaminhamento)}`, d],
+  EXCLUIR_ENCAMINHAMENTO: d => ["DELETE", `encaminhamentos/${enc(d.idEncaminhamento)}`, d],
+  EXCLUIR_ENTREGA: d => ["DELETE", `entregas/${enc(d.idEntrega)}`, d],
   ADD_ENTREGA: d => ["POST", `ideias/${enc(d.idIdeia)}/entregas`, d],
   EDITAR_ENTREGA: d => ["PUT", `entregas/${enc(d.idEntrega)}`, d],
   ANEXAR_ENTREGA: d => {
@@ -855,11 +859,15 @@ function aba(id, rotulo, contador) {
   return `<button class="aba ${estado.aba === id ? "ativa" : ""}" data-aba="${id}" role="tab">${rotulo}${contador !== "" ? `<span class="contador">${contador}</span>` : ""}</button>`;
 }
 
+/** Botão de lixeira; atributo = data-* que identifica o que excluir. */
+const lixeira = (atributo, id, titulo) => `
+  <button type="button" class="btn-excluir" ${atributo}="${esc(id)}" title="${esc(titulo)}" aria-label="${esc(titulo)}">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>`;
+
 function botaoExcluir(i) {
   return podeExcluirInteracoes() && i.ID_Interacao
-    ? `<button type="button" class="btn-excluir" data-excluir="${esc(i.ID_Interacao)}" title="Excluir ${i.Tipo === "Sugestão" ? "sugestão" : "comentário"}" aria-label="Excluir">
-         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-       </button>`
+    ? lixeira("data-excluir", i.ID_Interacao, `Excluir ${i.Tipo === "Sugestão" ? "sugestão" : "comentário"}`)
     : "";
 }
 
@@ -977,12 +985,13 @@ function painelEncaminhamentos(ideia, encs, entregas) {
         <td class="${atrasado(e) ? "prazo-atrasado" : ""}">${fmtData(prazoISO(e.Prazo)) || "—"}${atrasado(e) ? " ⚠" : ""}</td>
         <td>${entregaCel}</td>
         <td>${statusCel}</td>
+        ${ehAdmin() ? `<td>${lixeira("data-excluir-enc", e.ID_Encaminhamento, "Excluir encaminhamento")}</td>` : ""}
       </tr>`;
   }).join("");
 
   const tabela = lista.length ? `
     <table class="tabela">
-      <thead><tr><th>Ação</th><th>Responsável</th><th>Prazo</th><th>Entregas</th><th>Status</th></tr></thead>
+      <thead><tr><th>Ação</th><th>Responsável</th><th>Prazo</th><th>Entregas</th><th>Status</th>${ehAdmin() ? `<th><span class="sr-only">Excluir</span></th>` : ""}</tr></thead>
       <tbody>${linhas}</tbody>
     </table>` : `<p class="texto-vazio">Nenhum encaminhamento registrado.</p>`;
 
@@ -1030,7 +1039,7 @@ function celulaAnexo(en) {
       <div class="anexo">
         <button type="button" class="link-anexo" data-baixar-anexo="${id}" title="Baixar o documento">📎 ${esc(en.Anexo_Nome)}</button>
         ${info ? `<small>${esc(info)}</small>` : ""}
-        ${podeEscrever() ? `<button type="button" class="btn btn-secundario btn-pequeno" data-excluir-anexo="${id}">Excluir documento</button>` : ""}
+        ${ehAdmin() ? `<button type="button" class="btn btn-secundario btn-pequeno" data-excluir-anexo="${id}">Excluir documento</button>` : ""}
       </div>`;
   }
   return podeEscrever()
@@ -1104,6 +1113,7 @@ function painelEntregasDoEnc(ideia, encs, entregas) {
                </select>`
             : seloStatus(statusEntrega(en))}
           ${en.Responsavel ? `<span class="meta">${esc(en.Responsavel)}</span>` : ""}
+          ${ehAdmin() ? `<span class="empurra-direita">${lixeira("data-excluir-entrega", en.ID_Entrega, "Excluir entrega")}</span>` : ""}
         </div>
         ${en.Comentarios ? `<p>${formatarTexto(en.Comentarios)}</p>` : ""}
         ${celulaAnexo(en)}
@@ -1392,6 +1402,29 @@ async function excluirInteracao(id) {
   const senha = await pedirSenhaExclusao(msg);
   if (senha === null) return;
   await gravar("EXCLUIR_INTERACAO", { idInteracao: id, idIdeia: estado.selecionada, senha });
+}
+
+/** Exclui o encaminhamento e as entregas que só pertencem a ele (o servidor confere de novo). */
+async function excluirEncaminhamento(id) {
+  const det = detalheDe(estado.selecionada);
+  if (!det) return;
+  const enc = det.encaminhamentos.find(e => String(e.ID_Encaminhamento) === String(id));
+  if (!enc) return;
+  const minhas = entregasDoEnc(enc);
+  const soDele = minhas.filter(idEnt => !det.encaminhamentos.some(o => o !== enc && entregasDoEnc(o).includes(idEnt))).length;
+  const acao = String(enc.Acao).slice(0, 80) + (String(enc.Acao).length > 80 ? "…" : "");
+  const senha = await pedirSenhaExclusao(`Excluir o encaminhamento "${acao}"${soDele ? ` e ${soDele === 1 ? "a entrega" : `as ${soDele} entregas`} dele (com os documentos)` : ""}?\n\nEsta ação não pode ser desfeita.`);
+  if (senha === null) return;
+  const r = await gravar("EXCLUIR_ENCAMINHAMENTO", { idEncaminhamento: id, idIdeia: estado.selecionada, senha });
+  if (r && String(estado.encAberto) === String(id)) { estado.encAberto = null; renderizarDetalhe(); }
+}
+
+async function excluirEntrega(id) {
+  const en = (detalheDe(estado.selecionada)?.entregas || []).find(e => String(e.ID_Entrega) === String(id));
+  if (!en) return;
+  const senha = await pedirSenhaExclusao(`Excluir a entrega de ${fmtData(prazoISO(en.Data_Entrega)) || "data não informada"}${en.Anexo_Nome ? ` e o documento "${en.Anexo_Nome}"` : ""}?\n\nEsta ação não pode ser desfeita.`);
+  if (senha === null) return;
+  await gravar("EXCLUIR_ENTREGA", { idEntrega: id, idIdeia: estado.selecionada, senha });
 }
 
 /* ---------------------------------------------------------- */
@@ -2358,6 +2391,10 @@ detalhe.addEventListener("click", ev => {
 
   const excluir = ev.target.closest("[data-excluir]");
   if (excluir) return excluirInteracao(excluir.dataset.excluir);
+  const excluirEnc = ev.target.closest("[data-excluir-enc]");
+  if (excluirEnc) return excluirEncaminhamento(excluirEnc.dataset.excluirEnc);
+  const excluirEnt = ev.target.closest("[data-excluir-entrega]");
+  if (excluirEnt) return excluirEntrega(excluirEnt.dataset.excluirEntrega);
 
   const adotar = ev.target.closest("[data-ia-adotar]");
   if (adotar) return adotarEncaminhamento(Number(adotar.dataset.iaAdotar));

@@ -70,7 +70,7 @@ class InteracaoController {
   async excluir(req: Request, res: Response): Promise<Response> {
     try {
       if (!podeExcluirInteracoes(req.sessao!)) {
-        return res.status(403).json({ message: "Você não tem permissão para excluir sugestões e comentários." });
+        return res.status(403).json({ message: "Apenas administradores excluem sugestões e comentários." });
       }
       const alvo = await Interacao.findByPk(String(req.params.id));
       if (!alvo) return res.status(404).json({ message: "Registro não encontrado. Ele pode já ter sido excluído." });

@@ -3,6 +3,7 @@ import { Op, Transaction } from "sequelize";
 import { sequelize, Ideia, Encaminhamento, Entrega, EncaminhamentoEntrega, Citacao } from "../models";
 import { STATUS_ENCAMINHAMENTO } from "../lib/constantes";
 import { dataISO, novoId, texto } from "../lib/util";
+import { removerArquivoDoAnexo } from "../config/upload";
 
 /** Lista de IDs (array ou "ENT-1,ENT-2") sem repetição; null se alguma entrega não for da pauta. */
 async function entregasValidas(lista: unknown, idIdeia: string): Promise<string[] | null> {
@@ -83,6 +84,44 @@ class EncaminhamentoController {
     } catch (error) {
       console.error("Erro ao atualizar encaminhamento:", error);
       return res.status(500).json({ message: "Erro ao atualizar o encaminhamento." });
+    }
+  }
+
+  /**
+   * Exclui o encaminhamento e as entregas que só pertencem a ele (na tela, entrega sem
+   * encaminhamento ficaria inacessível). Entrega ligada a outro encaminhamento fica.
+   */
+  async excluir(req: Request, res: Response): Promise<Response> {
+    try {
+      const enc = await Encaminhamento.findByPk(String(req.params.id));
+      if (!enc) return res.status(404).json({ message: "Encaminhamento não encontrado. Ele pode já ter sido excluído." });
+
+      const vinculos = await EncaminhamentoEntrega.findAll({ where: { ID_Encaminhamento: enc.ID_Encaminhamento }, raw: true });
+      const idsEntregas = vinculos.map((v) => v.ID_Entrega);
+      const compartilhadas = idsEntregas.length
+        ? (await EncaminhamentoEntrega.findAll({
+            where: { ID_Entrega: { [Op.in]: idsEntregas }, ID_Encaminhamento: { [Op.ne]: enc.ID_Encaminhamento } },
+            raw: true
+          })).map((v) => v.ID_Entrega)
+        : [];
+      const soDele = idsEntregas.filter((id) => !compartilhadas.includes(id));
+      const arquivos = soDele.length
+        ? (await Entrega.findAll({ where: { ID_Entrega: { [Op.in]: soDele } }, attributes: ["Anexo_Arquivo"], raw: true }))
+            .map((e) => e.Anexo_Arquivo).filter(Boolean) as string[]
+        : [];
+
+      await sequelize.transaction(async (transaction) => {
+        if (soDele.length) await Entrega.destroy({ where: { ID_Entrega: { [Op.in]: soDele } }, transaction });
+        await enc.destroy({ transaction });
+      });
+      // Documentos só saem do disco depois que o banco confirmou a exclusão
+      await Promise.all(arquivos.map((a) => removerArquivoDoAnexo(a)));
+
+      const extra = soDele.length ? ` com ${soDele.length} entrega(s).` : ".";
+      return res.status(200).json({ message: "Encaminhamento excluído" + extra, id: enc.ID_Ideia });
+    } catch (error) {
+      console.error("Erro ao excluir encaminhamento:", error);
+      return res.status(500).json({ message: "Erro ao excluir o encaminhamento." });
     }
   }
 }

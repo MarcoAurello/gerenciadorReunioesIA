@@ -10,8 +10,6 @@ export const STATUS_ENTREGA = ["Aguardando análise", "Aprovado"];
 // Pautas sem grupo (criadas antes dos GTs) pertencem a este grupo
 export const GRUPO_PADRAO_ID = "GT-SISTEMAS";
 
-// Únicos usuários que podem excluir sugestões e comentários (sempre confirmando com a senha)
-const EXCLUEM_INTERACOES = ["marco.nunes"];
 
 export interface Sessao {
   apelido: string; // "" = observador; "admin" = administrador do primeiro acesso
@@ -19,5 +17,6 @@ export interface Sessao {
   nivel: Nivel;
 }
 
-export const podeExcluirInteracoes = (sessao: Sessao) =>
-  EXCLUEM_INTERACOES.includes(String(sessao.apelido || "").toLowerCase());
+// Só administradores excluem (sugestões, comentários, encaminhamentos, entregas, documentos e
+// metadados), sempre com a senha; os demais perfis apenas incluem e editam
+export const podeExcluirInteracoes = (sessao: Sessao) => sessao.nivel === "ADMIN";

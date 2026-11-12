@@ -3,7 +3,7 @@ import multer from "multer";
 import EntregaController from "../controllers/EntregaController";
 import upload, { ANEXO_EXTENSOES } from "../config/upload";
 import { autenticacao } from "../middlewares/autenticacao";
-import { somenteEscrita } from "../middlewares/perfil";
+import { somenteEscrita, somenteAdmin } from "../middlewares/perfil";
 import { confirmarSenha } from "../middlewares/confirmarSenha";
 
 const router = Router();
@@ -26,9 +26,11 @@ function receberArquivo(req: Request, res: Response, next: NextFunction) {
 router.use(autenticacao);
 
 router.put("/:id", somenteEscrita, (req, res) => EntregaController.editar(req, res));
+// Excluir (a entrega ou o documento dela): só o administrador, com a senha
+router.delete("/:id", somenteAdmin("Apenas administradores excluem entregas."), confirmarSenha, (req, res) => EntregaController.excluir(req, res));
 // Baixar o documento: qualquer usuário logado, inclusive o perfil Leitura
 router.get("/:id/anexo", (req, res) => EntregaController.baixarAnexo(req, res));
 router.post("/:id/anexo", somenteEscrita, receberArquivo, (req, res) => EntregaController.anexar(req, res));
-router.delete("/:id/anexo", somenteEscrita, confirmarSenha, (req, res) => EntregaController.excluirAnexo(req, res));
+router.delete("/:id/anexo", somenteAdmin("Apenas administradores excluem documentos."), confirmarSenha, (req, res) => EntregaController.excluirAnexo(req, res));
 
 export default router;
