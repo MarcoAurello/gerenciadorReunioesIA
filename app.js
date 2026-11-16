@@ -1540,7 +1540,7 @@ const ESTILO_RELATORIO = `
   .pauta .ordem { font-size: 12px; color: #5d6b7e; text-transform: uppercase; letter-spacing: .06em; margin-top: 12px; }
   .pauta h1 { margin-top: 2px; }
   .rodape { margin-top: 32px; padding-top: 10px; border-top: 1px solid #dde3ec; font-size: 11px; color: #5d6b7e; display: flex; justify-content: space-between; gap: 12px; }
-  a { color: #2459a8; word-break: break-all; }
+  a { color: #2459a8; word-break: break-all; text-decoration: underline; }
   @media (max-width: 640px) { .folha { padding: 24px 16px; margin: 12px 0; border-radius: 0; } .numeros { grid-template-columns: repeat(2, 1fr); } }
   @media print {
     @page { margin: 16mm; }
@@ -1550,7 +1550,8 @@ const ESTILO_RELATORIO = `
     .sugestao, .sintese, th, .numeros div { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   }`;
 
-const textoRelatorio = t => esc(t).replace(/\n/g, "<br>");
+// Links viram <a>: ficam clicáveis no relatório e também no PDF salvo pelo navegador
+const textoRelatorio = t => textoComLinks(t).replace(/\n/g, "<br>");
 const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
 
 /** Números e listas de uma pauta, usados no relatório da pauta e no do GT. */
@@ -1636,6 +1637,7 @@ function corpoPauta(ideia, det, { comGrupo = true } = {}) {
       ${comGrupo ? `<span>Grupo de trabalho</span><b>${esc(grupo ? grupo.Nome : "—")}</b>` : ""}
       <span>Status</span><b>${esc(ideia.Status || "—")}</b>
       <span>Criada em</span><b>${fmtData(ideia.Data_Criacao, true)}${ideia.Autor ? " por " + esc(ideia.Autor) : ""}</b>
+      ${ideia.Link_Doc_Oficial ? `<span>Texto oficial</span><b>${textoComLinks(ideia.Link_Doc_Oficial)}</b>` : ""}
     </div>
     ${ideia.Descricao ? `<p class="descricao">${textoRelatorio(ideia.Descricao)}</p>` : ""}
 
