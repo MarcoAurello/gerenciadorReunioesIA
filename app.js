@@ -521,8 +521,32 @@ const minhasCitacoes = () => {
     .sort((a, b) => String(b.Data).localeCompare(String(a.Data)));
 };
 
-/** Escapa o texto e destaca @apelidos de usuários cadastrados. */
+const RE_LINK = /(?<![\w./@-])(?:https?:\/\/|www\.)[^\s<>"']+/gi;
+
+/** Escapa o texto e transforma endereços (http://, https://, www.) em links clicáveis. */
+function textoComLinks(t, formatarResto = esc) {
+  const texto = String(t ?? "");
+  let html = "", ultimo = 0;
+  for (const m of texto.matchAll(RE_LINK)) {
+    let url = m[0];
+    // Pontuação no fim normalmente é da frase, não do endereço
+    // (um ")" só fica se fechar um "(" do próprio endereço, como em links da Wikipédia)
+    const parentesesAbertos = u => u.split("(").length - u.split(")").length;
+    while (/[.,;:!?'")\]}]$/.test(url) && !(url.endsWith(")") && parentesesAbertos(url) >= 0)) url = url.slice(0, -1);
+    const href = /^www\./i.test(url) ? "https://" + url : url;
+    html += formatarResto(texto.slice(ultimo, m.index)) +
+      `<a class="link-texto" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>`;
+    ultimo = m.index + url.length;
+  }
+  return html + formatarResto(texto.slice(ultimo));
+}
+
+/** Escapa o texto, cria links e destaca @apelidos de usuários cadastrados. */
 function formatarTexto(t) {
+  return textoComLinks(t, destacarMencoes);
+}
+
+function destacarMencoes(t) {
   const eu = meuUsuario();
   return esc(t).replace(/@([a-z0-9._-]+)/gi, (trecho, ap) => {
     const limpo = ap.replace(/[.\-_]+$/, "");
@@ -759,7 +783,7 @@ function renderizarDetalhe() {
         ${acoes}
       </div>
       <div class="meta">Criada em ${fmtData(ideia.Data_Criacao, true)}${ideia.Autor ? " por " + esc(ideia.Autor) : ""}</div>
-      ${ideia.Descricao ? `<p class="descricao">${esc(ideia.Descricao)}${ideia.Descricao_Completa === false && !carregado ? "…" : ""}</p>` : ""}
+      ${ideia.Descricao ? `<p class="descricao">${textoComLinks(ideia.Descricao)}${ideia.Descricao_Completa === false && !carregado ? "…" : ""}</p>` : ""}
     </div>
     <nav class="abas" role="tablist">
       ${aba("discussao", "Sugestões", nSugestoes)}
@@ -841,7 +865,7 @@ function painelDiscussao(ideia, interacoes, curtidas = []) {
             </span>
             <svg class="seta" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </div>
-          <p class="previa">${formatarTexto(s.Texto)}</p>
+          <p class="previa">${destacarMencoes(s.Texto)}</p>
         </summary>
         <p class="texto-completo">${formatarTexto(s.Texto)}</p>
         <div class="reacoes">${botaoCurtir(s, curtidas)}${botaoExcluir(s)}</div>
@@ -894,7 +918,7 @@ function painelEncaminhamentos(ideia, encs, entregas) {
     const entregaCel = `<button class="btn btn-secundario btn-pequeno" data-entregas-enc="${esc(e.ID_Encaminhamento)}">${plural(nEnt, "entrega", "entregas")}</button>`;
     return `
       <tr>
-        <td>${esc(e.Acao)}</td>
+        <td>${textoComLinks(e.Acao)}</td>
         <td>${esc(e.Responsavel)}</td>
         <td class="${atrasado(e) ? "prazo-atrasado" : ""}">${fmtData(prazoISO(e.Prazo)) || "—"}${atrasado(e) ? " ⚠" : ""}</td>
         <td>${entregaCel}</td>
@@ -1008,7 +1032,7 @@ function painelEntregasDoEnc(ideia, encs, entregas) {
     </div>
     <div class="entregas-enc">
       <span class="ind-rotulo">Encaminhamento</span>
-      <strong>${esc(enc.Acao)}</strong>
+      <strong>${textoComLinks(enc.Acao)}</strong>
       <div class="meta ${atrasado(enc) ? "prazo-atrasado" : ""}">
         ${enc.Responsavel ? esc(enc.Responsavel) + " · " : ""}Prazo: ${fmtData(prazoISO(enc.Prazo)) || "sem prazo"}${atrasado(enc) ? " · atrasado" : ""} · ${seloStatus(enc.Status)}
       </div>
@@ -1372,7 +1396,7 @@ const blocoEncaminhamento = (e, entregas) => `
   <div class="ind-enc">
     <div class="ind-enc-topo">
       <span class="ind-rotulo">Encaminhamento</span>
-      <strong>${esc(e.Acao)}</strong>
+      <strong>${textoComLinks(e.Acao)}</strong>
       ${seloStatus(e.Status)}
     </div>
     <div class="meta ${atrasado(e) ? "prazo-atrasado" : ""}">${e.Responsavel ? esc(e.Responsavel) + " · " : ""}Prazo: ${fmtData(prazoISO(e.Prazo)) || "sem prazo"}${atrasado(e) ? " · atrasado" : ""}</div>
@@ -1734,7 +1758,7 @@ function renderizarMeusEncaminhamentos() {
             <h4><a href="#" data-meu-enc="${esc(e.ID_Ideia)}">${esc(ideia ? ideia.Titulo : "Pauta removida")}</a></h4>
             ${seloStatus(e.Status)}
           </div>
-          <p>${esc(e.Acao)}</p>
+          <p>${textoComLinks(e.Acao)}</p>
           <div class="meta-cit ${atrasado(e) ? "prazo-atrasado" : ""}">Prazo: ${fmtData(prazoISO(e.Prazo)) || "sem prazo"}${atrasado(e) ? " · atrasado" : ""}</div>
           <div class="rodape">
             <button class="btn btn-secundario btn-pequeno" data-meu-enc="${esc(e.ID_Ideia)}">Ver na pauta</button>
