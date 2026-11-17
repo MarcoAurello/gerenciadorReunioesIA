@@ -106,12 +106,20 @@
       <!-- Indicadores -->
       <section class="kpis" id="kpis"></section>
 
+      <!-- Cabeçalho da página de pautas arquivadas -->
+      <div class="cab-arquivadas" id="cabArquivadas" hidden>
+        <button class="btn-voltar" id="btnVoltarAtivas">← Voltar às pautas ativas</button>
+        <h2>Pautas arquivadas</h2>
+        <p id="qtdArquivadas"></p>
+      </div>
+
       <!-- Barra de ferramentas -->
       <section class="barra">
         <input type="search" id="busca" placeholder="Buscar pauta por título ou descrição...">
         <select id="filtroStatus">
           <option value="">Todos os status</option>
         </select>
+        <button class="btn btn-secundario" id="btnArquivadas" title="Ver as pautas arquivadas deste GT">Arquivadas</button>
         <button class="btn btn-ia somente-escrita" id="btnIaPautas">✦ Sugerir pautas com IA</button>
         <button class="btn btn-primario somente-escrita" id="btnNovaPauta">+ Nova pauta</button>
       </section>

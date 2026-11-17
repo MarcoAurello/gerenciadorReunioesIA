@@ -276,6 +276,16 @@ textarea { resize: vertical; }
 .barra input { flex: 1; }
 .barra select { width: 200px; }
 
+/* Página de pautas arquivadas (dentro do painel do GT) */
+.cab-arquivadas { margin-bottom: 14px; }
+.cab-arquivadas h2 { margin: 0; font-size: 18px; }
+.cab-arquivadas p { margin: 2px 0 0; color: var(--texto-suave); font-size: 13px; }
+.modo-arquivadas #kpis,
+.modo-arquivadas #filtroStatus,
+.modo-arquivadas #btnArquivadas,
+.modo-arquivadas #btnIaPautas,
+.modo-arquivadas #btnNovaPauta { display: none !important; }
+
 .layout {
   display: grid;
   grid-template-columns: minmax(280px, 380px) 1fr;

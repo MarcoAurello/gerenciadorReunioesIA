@@ -26,6 +26,7 @@ const estado = {
     STATUS_ENTREGA: ["Aguardando análise", "Aprovado"]
   },
   selecionada: null,
+  arquivadas: false,     // true = painel do GT mostra só as pautas arquivadas
   aba: "discussao",
   filtroTipo: "",
   filtroCitacoes: "Pendente",
@@ -318,6 +319,13 @@ async function carregarDetalhe(id) {
 function selecionarPauta(id) {
   if (String(id) !== String(estado.selecionada)) estado.encAberto = null;
   estado.selecionada = String(id);
+  // Abre a pauta na página certa: arquivadas ficam numa página à parte
+  const ideia = (estado.dados.ideias || []).find(i => String(i.ID_Ideia) === String(id));
+  if (ideia && (ideia.Status === "Arquivada") !== estado.arquivadas) {
+    estado.arquivadas = !estado.arquivadas;
+    $("#filtroStatus").value = "";
+    renderizarModoArquivadas();
+  }
   renderizarLista();
   renderizarDetalhe();
   return carregarDetalhe(id);
@@ -511,7 +519,7 @@ function configurarPerfil() {
 
   const filtro = $("#filtroStatus");
   filtro.innerHTML = '<option value="">Todos os status</option>' +
-    estado.listas.STATUS_IDEIA.map(s => `<option>${esc(s)}</option>`).join("");
+    estado.listas.STATUS_IDEIA.filter(s => s !== "Arquivada").map(s => `<option>${esc(s)}</option>`).join("");
   $("#pStatus").innerHTML = estado.listas.STATUS_IDEIA.map(s => `<option>${esc(s)}</option>`).join("");
 }
 
@@ -647,6 +655,7 @@ function renderizarTudo() {
   const g = grupoAtual();
   $("#nomeGrupo").textContent = g.Nome;
   $("#descGrupo").textContent = g.Descricao || "";
+  renderizarModoArquivadas();
   renderizarKpis();
   renderizarLista();
   renderizarDetalhe();
@@ -684,14 +693,38 @@ function abrirGrupo(id) {
     estado.citacaoOrigem = null;
     $("#busca").value = "";
     $("#filtroStatus").value = "";
+    estado.arquivadas = false;
   }
   definirGrupo(id);
   renderizarTudo();
 }
 
+/** Liga/desliga a página de pautas arquivadas do GT aberto. */
+function alternarArquivadas(ligar) {
+  estado.arquivadas = ligar;
+  estado.selecionada = null;
+  estado.encAberto = null;
+  $("#busca").value = "";
+  $("#filtroStatus").value = "";
+  renderizarTudo();
+  window.scrollTo(0, 0);
+}
+
+function renderizarModoArquivadas() {
+  const nArq = ideiasDoGrupo().filter(i => i.Status === "Arquivada").length;
+  $("#telaPainel").classList.toggle("modo-arquivadas", estado.arquivadas);
+  $("#cabArquivadas").hidden = !estado.arquivadas;
+  $("#qtdArquivadas").textContent = plural(nArq, "pauta arquivada", "pautas arquivadas");
+  $("#btnArquivadas").textContent = `Arquivadas (${nArq})`;
+  $("#busca").placeholder = estado.arquivadas
+    ? "Buscar nas pautas arquivadas..."
+    : "Buscar pauta por título ou descrição...";
+}
+
 function voltarAosGrupos() {
   definirGrupo(null);
   estado.selecionada = null;
+  estado.arquivadas = false;
   renderizarTudo();
   window.scrollTo(0, 0);
 }
@@ -778,7 +811,8 @@ function ideiasFiltradas() {
   const termo = $("#busca").value.trim().toLowerCase();
   const status = $("#filtroStatus").value;
   return ideiasDoGrupo()
-    .filter(i => !status || i.Status === status)
+    .filter(i => (i.Status === "Arquivada") === estado.arquivadas)
+    .filter(i => estado.arquivadas || !status || i.Status === status)
     .filter(i => !termo || `${i.Titulo} ${i.Descricao}`.toLowerCase().includes(termo))
     .sort((a, b) => String(b.Data_Criacao).localeCompare(String(a.Data_Criacao)));
 }
@@ -787,7 +821,10 @@ function renderizarLista() {
   const lista = ideiasFiltradas();
   const cont = $("#listaPautas");
   if (!lista.length) {
-    cont.innerHTML = `<div class="vazio">${ideiasDoGrupo().length ? "Nenhuma pauta encontrada com esse filtro." : "Nenhuma pauta cadastrada neste GT ainda."}</div>`;
+    const daPagina = ideiasDoGrupo().filter(i => (i.Status === "Arquivada") === estado.arquivadas);
+    cont.innerHTML = `<div class="vazio">${daPagina.length ? "Nenhuma pauta encontrada com esse filtro."
+      : estado.arquivadas ? "Nenhuma pauta arquivada neste GT."
+      : "Nenhuma pauta ativa neste GT."}</div>`;
     return;
   }
   cont.innerHTML = lista.map(i => {
@@ -2338,6 +2375,8 @@ $("#listaGrupos").addEventListener("click", ev => {
   if (card) { abrirGrupo(card.dataset.grupo); window.scrollTo(0, 0); }
 });
 $("#btnVoltarGrupos").addEventListener("click", voltarAosGrupos);
+$("#btnArquivadas").addEventListener("click", () => alternarArquivadas(true));
+$("#btnVoltarAtivas").addEventListener("click", () => alternarArquivadas(false));
 $("#btnNovoGrupo").addEventListener("click", () => abrirModalGrupo());
 $("#btnEditarGrupo").addEventListener("click", () => abrirModalGrupo(grupoAtual()));
 $("#btnCancelarGrupo").addEventListener("click", () => $("#modalGrupo").close());
@@ -2429,7 +2468,10 @@ detalhe.addEventListener("toggle", ev => {
 
 detalhe.addEventListener("change", ev => {
   if (ev.target.id === "statusPauta") {
-    gravar("EDITAR_IDEIA", { idIdeia: estado.selecionada, status: ev.target.value });
+    // Ao arquivar/desarquivar, a pauta muda de página e o painel a acompanha
+    const id = estado.selecionada;
+    gravar("EDITAR_IDEIA", { idIdeia: id, status: ev.target.value })
+      .then(r => { if (r && String(estado.selecionada) === String(id)) selecionarPauta(id); });
   } else if (ev.target.dataset.enc) {
     gravar("ATUALIZAR_ENCAMINHAMENTO", { idEncaminhamento: ev.target.dataset.enc, status: ev.target.value, idIdeia: estado.selecionada });
   } else if (ev.target.dataset.entregaStatus) {
